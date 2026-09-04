@@ -15,7 +15,7 @@ class ApiException implements Exception {
 typedef LogoutCallback = void Function();
 
 class ApiClient {
-  static String baseUrl = 'http://10.0.2.2:8000/api/v1';
+  static String baseUrl = 'http://localhost:8000/api/v1';
   static LogoutCallback? onUnauthorized;
 
   static Future<void> loadBaseUrl() async {

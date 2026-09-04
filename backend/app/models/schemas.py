@@ -76,7 +76,7 @@ class DeviceLinkResponse(BaseModel):
     monitoring_enabled: bool
     schedule_start_hour: Optional[int] = None
     schedule_end_hour: Optional[int] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 class DeviceResponse(BaseModel):
     id: int

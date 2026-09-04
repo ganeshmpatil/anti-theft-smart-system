@@ -16,7 +16,7 @@ from app.api import auth, devices, alerts, commands
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://localhost:5000,http://localhost:5500").split(",")
 
 
 @asynccontextmanager

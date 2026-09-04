@@ -6,6 +6,10 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   static Future<void> init() async {
+    if (kIsWeb) {
+      debugPrint('[NotificationService] Skipping init on web platform');
+      return;
+    }
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
@@ -17,6 +21,10 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
+    if (kIsWeb) {
+      debugPrint('[NotificationService] Web alert: $title — $body');
+      return;
+    }
     const androidDetails = AndroidNotificationDetails(
       'farm_alerts',
       'Farm Alerts',

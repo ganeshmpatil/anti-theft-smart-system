@@ -6,6 +6,11 @@ An AI-powered, low-cost surveillance system for agricultural farms. Uses edge AI
 
 Agricultural farms face theft of expensive equipment (motors, water pipes, lights). Farmers need an affordable, autonomous monitoring solution that works in remote locations with unreliable power and connectivity.
 
+## Documentation
+
+- **[System Overview](docs/SYSTEM_OVERVIEW.md)** — Business requirements, stakeholders, detection pipeline, data flow diagrams, mobile app wireframes, cost analysis, and scalability plan.
+- **[Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md)** — Three-tier topology, edge software architecture, MQTT protocol design, backend API specification, database schema, security layers, OTA updates, performance budgets, and technology decision log.
+
 ## Architecture Overview
 
 ```

@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
@@ -27,14 +28,14 @@ class MQTTHandler:
 
     def __init__(self, storage: StorageService):
         self._storage = storage
+        client_id = f"atss-backend-{uuid.uuid4().hex[:8]}"
         self._client = mqtt.Client(
-            client_id="atss-backend",
+            client_id=client_id,
             protocol=mqtt.MQTTv5,
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         )
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
-        self._pending_images: dict[str, bytes] = {}
         self._running = False
 
         if settings.mqtt_username:
@@ -85,14 +86,16 @@ class MQTTHandler:
         return self._client.is_connected()
 
     def _on_connect(self, client, userdata, flags, rc, properties=None):
-        if rc == 0:
+        # MQTTv5 rc may be a ReasonCode object; compare via .value or check is_failure
+        rc_value = getattr(rc, 'value', rc)
+        if rc_value == 0:
             logger.info("MQTT handler connected — subscribing to topics")
             client.subscribe("farm/+/device/+/alert", qos=1)
             client.subscribe("farm/+/device/+/image", qos=1)
             client.subscribe("farm/+/device/+/heartbeat", qos=0)
             client.subscribe("farm/+/device/+/status", qos=1)
         else:
-            logger.error("MQTT handler connection failed (rc=%d)", rc)
+            logger.error("MQTT handler connection failed (rc=%s)", rc)
 
     def _on_message(self, client, userdata, msg):
         """Route incoming messages to the appropriate handler."""

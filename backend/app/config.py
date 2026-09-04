@@ -1,6 +1,13 @@
 """Application configuration loaded from environment variables."""
 
+import logging
+import secrets
+
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
+
+_INSECURE_JWT_DEFAULT = "change-this-to-a-random-secret-in-production"
 
 
 class Settings(BaseSettings):
@@ -16,12 +23,12 @@ class Settings(BaseSettings):
     # MinIO
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "minioadmin123"
+    minio_secret_key: str = "minioadmin"
     minio_bucket: str = "alert-snapshots"
     minio_secure: bool = False
 
     # JWT
-    jwt_secret_key: str = "change-this-to-a-random-secret-in-production"
+    jwt_secret_key: str = _INSECURE_JWT_DEFAULT
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
 
@@ -36,3 +43,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.jwt_secret_key == _INSECURE_JWT_DEFAULT:
+    settings.jwt_secret_key = secrets.token_urlsafe(32)
+    logger.warning(
+        "JWT_SECRET_KEY not set — using random ephemeral secret. "
+        "Tokens will NOT survive server restarts. Set JWT_SECRET_KEY in .env for production."
+    )

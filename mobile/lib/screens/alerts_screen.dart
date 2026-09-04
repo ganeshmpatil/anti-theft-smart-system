@@ -1,4 +1,6 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../models/alert.dart';
 import '../services/api_client.dart';
 
@@ -12,6 +14,8 @@ class AlertsScreen extends StatefulWidget {
 class _AlertsScreenState extends State<AlertsScreen> {
   List<Alert> _alerts = [];
   bool _loading = true;
+  bool _loadingMore = false;
+  String? _error;
   int _offset = 0;
   static const _limit = 20;
   bool _hasMore = true;
@@ -27,7 +31,15 @@ class _AlertsScreenState extends State<AlertsScreen> {
       _offset = 0;
       _hasMore = true;
     }
-    setState(() => _loading = true);
+    if (!refresh && _loadingMore) return;
+    setState(() {
+      if (refresh) {
+        _loading = true;
+        _error = null;
+      } else {
+        _loadingMore = true;
+      }
+    });
     try {
       final data =
           await ApiClient.get('/alerts?limit=$_limit&offset=$_offset');
@@ -42,9 +54,14 @@ class _AlertsScreenState extends State<AlertsScreen> {
         _hasMore = newAlerts.length == _limit;
         _offset += newAlerts.length;
         _loading = false;
+        _loadingMore = false;
       });
-    } catch (_) {
-      setState(() => _loading = false);
+    } catch (e) {
+      setState(() {
+        _error = e is ApiException ? e.message : 'Failed to load alerts';
+        _loading = false;
+        _loadingMore = false;
+      });
     }
   }
 
@@ -62,11 +79,17 @@ class _AlertsScreenState extends State<AlertsScreen> {
     }
   }
 
-  void _showAlertImage(Alert alert) {
-    if (alert.imagePath == null) return;
+  Future<void> _showAlertImage(Alert alert) async {
+    if (alert.imagePath == null || alert.imagePath!.isEmpty) return;
+
+    final token = await ApiClient.getToken();
+    final url =
+        '${ApiClient.baseUrl.replaceFirst('/api/v1', '')}/api/v1/alerts/${alert.id}/image';
+
+    if (!mounted) return;
     showDialog(
       context: context,
-      builder: (_) => Dialog(
+      builder: (dialogContext) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -76,16 +99,31 @@ class _AlertsScreenState extends State<AlertsScreen> {
               actions: [
                 IconButton(
                     icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context)),
+                    onPressed: () => Navigator.pop(dialogContext)),
               ],
             ),
-            Image.network(
-              '${ApiClient.baseUrl.replaceFirst('/api/v1', '')}/api/v1/alerts/${alert.id}/image',
-              errorBuilder: (_, __, ___) =>
-                  const Padding(
+            FutureBuilder<http.Response>(
+              future: http.get(Uri.parse(url), headers: {
+                if (token != null) 'Authorization': 'Bearer $token',
+              }),
+              builder: (_, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: CircularProgressIndicator(),
+                  );
+                }
+                if (snapshot.hasError ||
+                    snapshot.data == null ||
+                    snapshot.data!.statusCode != 200) {
+                  return const Padding(
                     padding: EdgeInsets.all(32),
                     child: Text('Failed to load image'),
-                  ),
+                  );
+                }
+                return Image.memory(
+                    Uint8List.fromList(snapshot.data!.bodyBytes));
+              },
             ),
             Padding(
               padding: const EdgeInsets.all(16),
@@ -111,65 +149,86 @@ class _AlertsScreenState extends State<AlertsScreen> {
       appBar: AppBar(title: const Text('Alerts')),
       body: _loading && _alerts.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: () => _loadAlerts(refresh: true),
-              child: _alerts.isEmpty
-                  ? const Center(child: Text('No alerts'))
-                  : ListView.builder(
-                      itemCount: _alerts.length + (_hasMore ? 1 : 0),
-                      itemBuilder: (_, i) {
-                        if (i == _alerts.length) {
-                          // Load more trigger
-                          _loadAlerts();
-                          return const Padding(
-                            padding: EdgeInsets.all(16),
-                            child:
-                                Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final a = _alerts[i];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          color: a.acknowledged
-                              ? null
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .errorContainer,
-                          child: ListTile(
-                            leading: Icon(
-                              Icons.warning_amber,
+          : _error != null && _alerts.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_error!,
+                          style: const TextStyle(color: Colors.red)),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: () => _loadAlerts(refresh: true),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: () => _loadAlerts(refresh: true),
+                  child: _alerts.isEmpty
+                      ? const Center(child: Text('No alerts'))
+                      : ListView.builder(
+                          itemCount: _alerts.length + (_hasMore ? 1 : 0),
+                          itemBuilder: (_, i) {
+                            if (i == _alerts.length) {
+                              if (!_loadingMore) {
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  _loadAlerts();
+                                });
+                              }
+                              return const Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Center(
+                                    child: CircularProgressIndicator()),
+                              );
+                            }
+                            final a = _alerts[i];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 4),
                               color: a.acknowledged
-                                  ? Colors.grey
-                                  : Colors.red,
-                              size: 32,
-                            ),
-                            title: Text(
-                                '${a.alertType} — ${(a.confidence * 100).toStringAsFixed(0)}%'),
-                            subtitle: Text(
-                                'Device #${a.deviceId} • ${a.createdAt}'),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (a.imagePath != null)
-                                  IconButton(
-                                    icon: const Icon(Icons.image),
-                                    onPressed: () => _showAlertImage(a),
-                                  ),
-                                if (!a.acknowledged)
-                                  IconButton(
-                                    icon: const Icon(Icons.check),
-                                    tooltip: 'Acknowledge',
-                                    onPressed: () =>
-                                        _acknowledgeAlert(a),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
+                                  ? null
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .errorContainer,
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.warning_amber,
+                                  color: a.acknowledged
+                                      ? Colors.grey
+                                      : Colors.red,
+                                  size: 32,
+                                ),
+                                title: Text(
+                                    '${a.alertType} — ${(a.confidence * 100).toStringAsFixed(0)}%'),
+                                subtitle: Text(
+                                    'Device #${a.deviceId} • ${a.createdAt}'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (a.imagePath != null &&
+                                        a.imagePath!.isNotEmpty)
+                                      IconButton(
+                                        icon: const Icon(Icons.image),
+                                        onPressed: () =>
+                                            _showAlertImage(a),
+                                      ),
+                                    if (!a.acknowledged)
+                                      IconButton(
+                                        icon: const Icon(Icons.check),
+                                        tooltip: 'Acknowledge',
+                                        onPressed: () =>
+                                            _acknowledgeAlert(a),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
     );
   }
 }

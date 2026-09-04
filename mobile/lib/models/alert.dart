@@ -21,7 +21,7 @@ class Alert {
     return Alert(
       id: json['id'] as int,
       deviceId: json['device_id'] as int,
-      alertType: json['alert_type'] as String,
+      alertType: json['event_type'] as String,
       confidence: (json['confidence'] as num).toDouble(),
       imagePath: json['image_path'] as String?,
       acknowledged: json['acknowledged'] as bool? ?? false,

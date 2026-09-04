@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'screens/login_screen.dart';
@@ -11,6 +12,7 @@ import 'screens/settings_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService.init();
+  await ApiClient.loadBaseUrl();
   runApp(const FarmGuardApp());
 }
 
@@ -20,7 +22,11 @@ class FarmGuardApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => AuthService(),
+      create: (_) {
+        final auth = AuthService();
+        ApiClient.onUnauthorized = () => auth.logout();
+        return auth;
+      },
       child: MaterialApp(
         title: 'FarmGuard',
         debugShowCheckedModeBanner: false,
@@ -66,17 +72,25 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  final _pages = const [
-    DashboardScreen(),
-    AlertsScreen(),
-    DevicesScreen(),
-    SettingsScreen(),
-  ];
+  Widget _buildPage(int index) {
+    switch (index) {
+      case 0:
+        return const DashboardScreen();
+      case 1:
+        return const AlertsScreen();
+      case 2:
+        return const DevicesScreen();
+      case 3:
+        return const SettingsScreen();
+      default:
+        return const DashboardScreen();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_currentIndex],
+      body: _buildPage(_currentIndex),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() => _currentIndex = i),

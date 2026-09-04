@@ -14,6 +14,7 @@ class CommandHandler:
         self._armed.set()  # armed by default
         self._snapshot_requested = threading.Event()
         self._reboot_requested = threading.Event()
+        self._lock = threading.Lock()
 
     def handle(self, action: str, params: dict):
         """Process an incoming command.
@@ -22,7 +23,7 @@ class CommandHandler:
             action: command name (arm, disarm, snapshot, reboot, config_update)
             params: command parameters
         """
-        logger.info("Command received: action=%s params=%s", action, params)
+        logger.info("Command received: action=%s", action)
 
         if action == "arm":
             self._armed.set()
@@ -41,9 +42,7 @@ class CommandHandler:
             logger.warning("Reboot requested")
 
         elif action == "config_update":
-            logger.info("Config update received: %s", params)
-            # Config updates are handled by the surveillance loop
-            # by re-reading the config. For now, just log it.
+            logger.info("Config update received")
 
         else:
             logger.warning("Unknown command: %s", action)
@@ -52,13 +51,18 @@ class CommandHandler:
     def is_armed(self) -> bool:
         return self._armed.is_set()
 
+    def consume_snapshot_request(self) -> bool:
+        """Atomically check and clear the snapshot flag. Thread-safe."""
+        with self._lock:
+            if self._snapshot_requested.is_set():
+                self._snapshot_requested.clear()
+                return True
+            return False
+
     @property
     def snapshot_requested(self) -> bool:
-        """Check and clear the snapshot flag."""
-        if self._snapshot_requested.is_set():
-            self._snapshot_requested.clear()
-            return True
-        return False
+        """Check and clear the snapshot flag. Use consume_snapshot_request() for thread safety."""
+        return self.consume_snapshot_request()
 
     @property
     def reboot_requested(self) -> bool:

@@ -1,21 +1,23 @@
 """Alert history and management endpoints."""
 
+import io
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.database import Alert, Device, Farm, User
 from app.models.schemas import AlertAcknowledge, AlertResponse
 from app.api.deps import get_current_user
-from app.services.storage import StorageService
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
-_storage = StorageService()
+
+def _get_storage(request: Request):
+    return getattr(request.app.state, "storage", None)
 
 
 def _user_device_ids(user: User, db: Session) -> list[int]:
@@ -75,6 +77,7 @@ def get_alert(
 @router.get("/{alert_id}/image")
 def get_alert_image(
     alert_id: int,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -89,11 +92,25 @@ def get_alert_image(
     if not alert.image_path:
         raise HTTPException(status_code=404, detail="No image available")
 
-    url = _storage.get_presigned_url(alert.image_path)
-    if not url:
-        raise HTTPException(status_code=500, detail="Failed to generate image URL")
+    storage = _get_storage(request)
+    if not storage:
+        raise HTTPException(status_code=500, detail="Storage service not available")
 
-    return RedirectResponse(url=url)
+    try:
+        response = storage._client.get_object(storage._bucket, alert.image_path)
+        return StreamingResponse(
+            io.BytesIO(response.read()),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Image not found in storage")
+    finally:
+        try:
+            response.close()
+            response.release_conn()
+        except Exception:
+            pass
 
 
 @router.patch("/{alert_id}/ack", response_model=AlertResponse)

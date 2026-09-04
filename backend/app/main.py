@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,6 +15,8 @@ from app.services.storage import StorageService
 from app.api import auth, devices, alerts, commands
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
 
 @asynccontextmanager
@@ -32,6 +35,7 @@ async def lifespan(app: FastAPI):
     # Ensure MinIO bucket exists
     storage = StorageService()
     storage.ensure_bucket()
+    app.state.storage = storage
     logger.info("MinIO storage ready.")
 
     # Start MQTT handler
@@ -57,7 +61,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

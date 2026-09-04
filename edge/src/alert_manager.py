@@ -121,8 +121,22 @@ class AlertManager:
 
     def queue_alert(self, alert: Alert):
         """Add alert to offline queue when MQTT is unavailable."""
+        if len(self._queue) == self._queue.maxlen:
+            logger.warning("Alert queue full (%d) — oldest alert will be dropped",
+                           self._queue.maxlen)
         self._queue.append(alert)
         logger.info("Alert queued (queue size: %d)", len(self._queue))
+
+    def queue_raw_payload(self, payload: str):
+        """Queue a raw JSON payload (e.g., tamper alert) for later delivery."""
+        raw_alert = Alert(
+            device_id=self._device_id, farm_id=self._farm_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            camera_id="", direction="", confidence=0.0, person_count=0,
+            bboxes=[], image_jpeg=b"", device_status={},
+        )
+        raw_alert._raw_payload = payload
+        self.queue_alert(raw_alert)
 
     def drain_queue(self) -> list[Alert]:
         """Return all queued alerts and clear the queue."""

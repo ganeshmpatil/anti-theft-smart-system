@@ -1,16 +1,17 @@
 """Pydantic schemas for API request/response validation."""
 
+import re
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # --- Auth ---
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=72)
     full_name: str = ""
 
 class UserLogin(BaseModel):
@@ -29,7 +30,7 @@ class FcmTokenUpdate(BaseModel):
 # --- Farm ---
 
 class FarmCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=255)
     location: str = ""
 
 class FarmResponse(BaseModel):
@@ -43,9 +44,18 @@ class FarmResponse(BaseModel):
 
 # --- Device ---
 
+_DEVICE_UID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+
 class DeviceRegister(BaseModel):
-    device_uid: str
+    device_uid: str = Field(..., min_length=1, max_length=100)
     farm_id: int
+
+    @field_validator('device_uid')
+    @classmethod
+    def validate_device_uid(cls, v: str) -> str:
+        if not _DEVICE_UID_PATTERN.match(v):
+            raise ValueError('device_uid must contain only letters, digits, hyphens, and underscores')
+        return v
 
 class DeviceResponse(BaseModel):
     id: int

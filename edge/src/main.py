@@ -151,14 +151,15 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     logger.info("Starting surveillance loop...")
-    loop.run()
-
-    # Cleanup
-    logger.info("Shutting down...")
-    providers.cam1.release()
-    providers.cam2.release()
-    mqtt_client.disconnect()
-    logger.info("Edge daemon stopped")
+    try:
+        loop.run()
+    finally:
+        # Cleanup — always runs even if loop.run() raises
+        logger.info("Shutting down...")
+        providers.cam1.release()
+        providers.cam2.release()
+        mqtt_client.disconnect()
+        logger.info("Edge daemon stopped")
 
 
 if __name__ == "__main__":

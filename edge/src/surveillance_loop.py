@@ -119,8 +119,17 @@ class SurveillanceLoop:
                         break
 
                     if not camera.is_alive():
-                        logger.warning("Camera %s is not alive — skipping", camera.camera_id)
-                        continue
+                        logger.warning("Camera %s is not alive — attempting reconnect", camera.camera_id)
+                        try:
+                            camera.release()
+                            if camera.open():
+                                logger.info("Camera %s reconnected", camera.camera_id)
+                            else:
+                                logger.error("Camera %s reconnect failed — skipping", camera.camera_id)
+                                continue
+                        except Exception:
+                            logger.exception("Camera %s reconnect error", camera.camera_id)
+                            continue
 
                     self._process_camera(camera, throttle)
 
@@ -214,18 +223,22 @@ class SurveillanceLoop:
             self._alerts.queue_alert(alert)
 
     def _handle_tamper(self):
-        """Publish immediate tamper alert."""
+        """Publish immediate tamper alert — queues if MQTT is offline."""
         logger.warning("TAMPER DETECTED — publishing alert")
         import json
+        device_cfg = self._config.get("device", {})
         payload = json.dumps({
-            "device_id": self._config["device"]["device_id"],
-            "farm_id": self._config["device"]["farm_id"],
+            "device_id": device_cfg.get("device_id", "unknown"),
+            "farm_id": device_cfg.get("farm_id", "unknown"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": "tamper_detected",
             "device_status": self._get_device_status(),
         })
         if self._mqtt.is_connected:
             self._mqtt.publish_alert(payload, b"")
+        else:
+            logger.warning("MQTT offline — tamper alert queued for later delivery")
+            self._alerts.queue_raw_payload(payload)
 
     def _handle_snapshot_request(self):
         """Capture and publish a snapshot on demand."""
@@ -260,15 +273,21 @@ class SurveillanceLoop:
         self._mqtt.publish_heartbeat(heartbeat)
 
     def _flush_alert_queue(self):
-        """Flush offline queue if MQTT is connected."""
+        """Flush offline queue if MQTT is connected. Re-queues on failure."""
         if not self._mqtt.is_connected or self._alerts.queue_size == 0:
             return
 
         queued = self._alerts.drain_queue()
         logger.info("Flushing %d queued alerts", len(queued))
         for alert in queued:
+            if not self._mqtt.is_connected:
+                # Connection dropped mid-flush — re-queue remaining
+                self._alerts.queue_alert(alert)
+                continue
             payload = self._alerts.to_payload(alert)
-            self._mqtt.publish_alert(payload, alert.image_jpeg)
+            success = self._mqtt.publish_alert(payload, alert.image_jpeg)
+            if not success:
+                self._alerts.queue_alert(alert)
 
     def _get_device_status(self) -> dict:
         """Build device status dict for heartbeats and alerts."""
@@ -277,7 +296,7 @@ class SurveillanceLoop:
             avg_inference = sum(self._inference_times) / len(self._inference_times)
 
         return {
-            "device_id": self._config["device"]["device_id"],
+            "device_id": self._config.get("device", {}).get("device_id", "unknown"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "cpu_temp_c": self._thermal.get_cpu_temp(),
             "battery_pct": self._power.get_battery_pct(),

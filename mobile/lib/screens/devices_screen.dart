@@ -15,6 +15,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
   List<Device> _devices = [];
   List<Farm> _farms = [];
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -23,7 +24,10 @@ class _DevicesScreenState extends State<DevicesScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final devData = await ApiClient.get('/devices');
       final farmData = await ApiClient.get('/farms');
@@ -32,8 +36,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
         _farms = (farmData as List).map((f) => Farm.fromJson(f)).toList();
         _loading = false;
       });
-    } catch (_) {
-      setState(() => _loading = false);
+    } catch (e) {
+      setState(() {
+        _error = e is ApiException ? e.message : 'Failed to load devices';
+        _loading = false;
+      });
     }
   }
 
@@ -62,7 +69,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<int>(
-                initialValue: selectedFarmId,
+                value: selectedFarmId,
                 decoration: const InputDecoration(labelText: 'Farm'),
                 items: _farms
                     .map((f) =>
@@ -139,9 +146,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
               try {
                 await ApiClient.post('/farms', {
                   'name': nameCtrl.text.trim(),
-                  'location': locationCtrl.text.trim().isEmpty
-                      ? null
-                      : locationCtrl.text.trim(),
+                  'location': locationCtrl.text.trim(),
                 });
                 if (ctx.mounted) Navigator.pop(ctx);
                 _load();
@@ -179,42 +184,55 @@ class _DevicesScreenState extends State<DevicesScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: _devices.isEmpty
-                  ? const Center(child: Text('No devices registered'))
-                  : ListView.builder(
-                      itemCount: _devices.length,
-                      itemBuilder: (_, i) {
-                        final d = _devices[i];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          child: ListTile(
-                            leading: Icon(Icons.videocam,
-                                color: d.isOnline
-                                    ? Colors.green
-                                    : Colors.grey),
-                            title: Text(d.deviceUid),
-                            subtitle: Text(_farmName(d.farmId)),
-                            trailing: Chip(
-                              label: Text(d.isOnline ? 'Online' : 'Offline'),
-                              backgroundColor: d.isOnline
-                                  ? Colors.green.shade100
-                                  : Colors.grey.shade200,
-                            ),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    DeviceDetailScreen(device: d),
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_error!,
+                          style: const TextStyle(color: Colors.red)),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                          onPressed: _load, child: const Text('Retry')),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: _devices.isEmpty
+                      ? const Center(child: Text('No devices registered'))
+                      : ListView.builder(
+                          itemCount: _devices.length,
+                          itemBuilder: (_, i) {
+                            final d = _devices[i];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 4),
+                              child: ListTile(
+                                leading: Icon(Icons.videocam,
+                                    color: d.isOnline
+                                        ? Colors.green
+                                        : Colors.grey),
+                                title: Text(d.deviceUid),
+                                subtitle: Text(_farmName(d.farmId)),
+                                trailing: Chip(
+                                  label: Text(d.isOnline ? 'Online' : 'Offline'),
+                                  backgroundColor: d.isOnline
+                                      ? Colors.green.shade100
+                                      : Colors.grey.shade200,
+                                ),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        DeviceDetailScreen(device: d),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
+                            );
+                          },
+                        ),
+                ),
     );
   }
 }

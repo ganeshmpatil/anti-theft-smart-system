@@ -12,8 +12,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _urlCtrl = TextEditingController(text: ApiClient.baseUrl);
   bool _saved = false;
 
-  void _save() {
-    ApiClient.baseUrl = _urlCtrl.text.trim();
+  Future<void> _save() async {
+    await ApiClient.saveBaseUrl(_urlCtrl.text.trim());
     setState(() => _saved = true);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _saved = false);

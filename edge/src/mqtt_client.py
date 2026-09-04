@@ -148,7 +148,7 @@ class MQTTClient:
         try:
             topic = msg.topic
             payload = json.loads(msg.payload.decode())
-            logger.info("MQTT message on %s: %s", topic, payload)
+            logger.debug("MQTT message on %s: %s", topic, payload)
 
             if topic.endswith("/command") and self._command_callback:
                 action = payload.get("action", "")

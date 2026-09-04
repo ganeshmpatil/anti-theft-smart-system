@@ -11,11 +11,28 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-class ApiClient {
-  // Default to 10.0.2.2 for Android emulator (maps to host localhost)
-  static String baseUrl = 'http://10.0.2.2:8000/api/v1';
+/// Callback for forcing logout on 401 responses.
+typedef LogoutCallback = void Function();
 
-  static Future<String?> _getToken() async {
+class ApiClient {
+  static String baseUrl = 'http://10.0.2.2:8000/api/v1';
+  static LogoutCallback? onUnauthorized;
+
+  static Future<void> loadBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('server_url');
+    if (saved != null && saved.isNotEmpty) {
+      baseUrl = saved;
+    }
+  }
+
+  static Future<void> saveBaseUrl(String url) async {
+    baseUrl = url;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('server_url', url);
+  }
+
+  static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('access_token');
   }
@@ -25,7 +42,7 @@ class ApiClient {
       'Content-Type': 'application/json',
     };
     if (auth) {
-      final token = await _getToken();
+      final token = await getToken();
       if (token != null) {
         headers['Authorization'] = 'Bearer $token';
       }
@@ -37,6 +54,9 @@ class ApiClient {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return null;
       return jsonDecode(response.body);
+    }
+    if (response.statusCode == 401) {
+      onUnauthorized?.call();
     }
     String message = 'Request failed';
     try {

@@ -66,8 +66,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     style: theme.textTheme.titleMedium,
                   ),
                   const Spacer(),
-                  if (d.lastSeen != null)
-                    Text('Last seen: ${d.lastSeen}',
+                  if (d.lastHeartbeat != null)
+                    Text('Last seen: ${d.lastHeartbeat}',
                         style: theme.textTheme.bodySmall),
                 ],
               ),

@@ -99,7 +99,7 @@ def get_alert_image(
         return StreamingResponse(
             io.BytesIO(response.read()),
             media_type="image/jpeg",
-            headers={"Cache-Control": "private, max-age=3600"},
+            headers={"Cache-Control": "no-cache"},
         )
     except Exception:
         raise HTTPException(status_code=404, detail="Image not found in storage")

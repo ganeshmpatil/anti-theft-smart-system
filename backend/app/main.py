@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://localhost:5000,http://localhost:5500").split(",")
 
+# For local development, allow all origins if no CORS_ORIGINS env is set
+if not os.getenv("CORS_ORIGINS"):
+    ALLOWED_ORIGINS = ["*"]
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

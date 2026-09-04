@@ -176,25 +176,38 @@ class MQTTHandler:
         if not payload:
             return
 
-        # Store in MinIO
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        object_name = f"{device_uid}/alert_{timestamp}.jpg"
-        self._storage.upload_image(object_name, payload)
-
-        # Update the most recent alert's image_path
         db: Session = SessionLocal()
         try:
             device = db.query(Device).filter(Device.device_uid == device_uid).first()
-            if device:
-                latest_alert = (
-                    db.query(Alert)
-                    .filter(Alert.device_id == device.id)
-                    .order_by(Alert.created_at.desc())
-                    .first()
-                )
-                if latest_alert:
-                    latest_alert.image_path = object_name
-                    db.commit()
+            if not device:
+                return
+
+            # Find the most recent alert that has an image_ref but no stored image yet
+            latest_alert = (
+                db.query(Alert)
+                .filter(Alert.device_id == device.id)
+                .order_by(Alert.created_at.desc())
+                .first()
+            )
+            if not latest_alert:
+                return
+
+            # Use the image_ref from the alert as the storage key
+            image_ref = latest_alert.image_path
+            if not image_ref:
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                image_ref = f"alert_{timestamp}.jpg"
+
+            object_name = f"{device_uid}/{image_ref}" if "/" not in image_ref else image_ref
+
+            # Store in MinIO
+            self._storage.upload_image(object_name, payload)
+
+            # Update alert's image_path to the stored object name
+            latest_alert.image_path = object_name
+            db.commit()
+            logger.info("Image stored: %s (%d bytes)", object_name, len(payload))
+
         finally:
             db.close()
 

@@ -154,6 +154,12 @@ class SurveillanceLoop:
                 self._scan_count += 1
                 cycle_time = time.monotonic() - self._cycle_start
 
+                # Log periodic status so we know the loop is alive
+                if self._scan_count % 100 == 0:
+                    logger.info("Loop alive: %d scans, %d alerts today, cycle=%.0fms",
+                                self._scan_count, self._alerts.alerts_today,
+                                cycle_time * 1000)
+
                 # Throttle loop if needed
                 if throttle == "critical":
                     time.sleep(5.0)
@@ -179,12 +185,14 @@ class SurveillanceLoop:
         camera_id = camera.camera_id
 
         # Stage 1: Motion detection (~5ms)
+        # In webcam/testing mode, skip motion gate so YOLO runs on every frame
+        skip_motion_gate = self._config.get("mode") == "webcam"
         motion_detected, motion_area = self._motion_detectors[camera_id].detect(frame)
 
         if self._debug_window:
             self._show_debug(camera_id, frame, motion_detected, motion_area, [])
 
-        if not motion_detected:
+        if not motion_detected and not skip_motion_gate:
             return
 
         # Stage 2: YOLO inference — skip if thermal critical

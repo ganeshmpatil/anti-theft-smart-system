@@ -34,11 +34,11 @@ mqtt:
 
 detection:
   model_path: "models/yolov5n.onnx"
-  confidence_threshold: 0.6
+  confidence_threshold: 0.45
   nms_threshold: 0.45
   temporal_frames: 2
-  cooldown_seconds: 30
-  min_motion_area: 500
+  cooldown_seconds: 5
+  min_motion_area: 200
 
 schedule:
   enabled: false

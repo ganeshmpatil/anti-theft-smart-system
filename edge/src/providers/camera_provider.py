@@ -170,6 +170,7 @@ class WebcamSplitProvider(ICameraProvider):
     # Class-level shared capture to avoid opening webcam twice
     _shared_caps: dict[int, cv2.VideoCapture] = {}
     _shared_ref_count: dict[int, int] = {}
+    _shared_frame: dict[int, tuple[float, Optional[np.ndarray]]] = {}  # device -> (timestamp, frame)
 
     @property
     def camera_id(self) -> str:
@@ -201,11 +202,24 @@ class WebcamSplitProvider(ICameraProvider):
             return frame[:, :mid]
         return frame[:, mid:]
 
-    def read_frame(self) -> Optional[np.ndarray]:
+    def _read_shared_frame(self) -> Optional[np.ndarray]:
+        """Read from webcam only once per frame period; return cached frame otherwise."""
         if self._cap is None or not self._cap.isOpened():
             return None
-        ret, frame = self._cap.read()
-        if not ret or frame is None:
+        now = time.monotonic()
+        cached = WebcamSplitProvider._shared_frame.get(self._device_index)
+        # Re-read if no cache or cache is older than 5ms (same loop cycle uses cache)
+        if cached is None or (now - cached[0]) > 0.005:
+            ret, frame = self._cap.read()
+            if not ret or frame is None:
+                return None
+            WebcamSplitProvider._shared_frame[self._device_index] = (now, frame)
+            return frame
+        return cached[1]
+
+    def read_frame(self) -> Optional[np.ndarray]:
+        frame = self._read_shared_frame()
+        if frame is None:
             return None
         cropped = self._split_frame(frame)
         return cv2.resize(cropped, (INFER_WIDTH, INFER_HEIGHT))

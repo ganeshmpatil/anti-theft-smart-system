@@ -17,7 +17,7 @@ class MotionDetector:
     """
 
     def __init__(self, min_contour_area: int = 3000, blur_kernel: int = 21,
-                 pixel_threshold: int = 20, ref_update_interval: int = 10):
+                 pixel_threshold: int = 20, ref_update_interval: int = 100):
         self._min_area = min_contour_area
         self._blur_kernel = (blur_kernel, blur_kernel)
         self._pixel_threshold = pixel_threshold

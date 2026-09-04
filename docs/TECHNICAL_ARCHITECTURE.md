@@ -19,6 +19,7 @@
 - [15. OTA Update Mechanism](#15-ota-update-mechanism)
 - [16. Performance Budgets](#16-performance-budgets)
 - [17. Technology Decisions](#17-technology-decisions)
+- [18. Testing and Simulation Strategy](#18-testing-and-simulation-strategy)
 
 ---
 
@@ -1738,6 +1739,582 @@
     ├── cached_network_image      3.3.x     (image caching)
     ├── intl                      0.19.x    (date formatting)
     └── go_router                 13.x      (navigation)
+```
+
+---
+
+## 18. Testing and Simulation Strategy
+
+The entire system is designed to be fully testable on a developer laptop without any physical hardware. Every hardware component has a software simulation counterpart. The core application logic remains identical between simulation and production — only the input/output providers change.
+
+### 18.1 Simulation Architecture — Hardware Abstraction Layer
+
+```
+    ┌──────────────────────────────────────────────────────────────┐
+    │                  APPLICATION CODE                             │
+    │            (identical in simulation and production)           │
+    │                                                              │
+    │  surveillance_loop.py                                        │
+    │  alert_manager.py                                            │
+    │  command_handler.py                                          │
+    │  mqtt_client.py                                              │
+    └──────────────────────────┬───────────────────────────────────┘
+                               │
+                    depends on abstract interfaces
+                               │
+            ┌──────────────────┼──────────────────┐
+            │                  │                  │
+            ▼                  ▼                  ▼
+    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+    │  PRODUCTION   │  │  SIMULATION  │  │  SIMULATION  │
+    │  PROVIDERS    │  │  (Video)     │  │  (Webcam)    │
+    │              │  │              │  │              │
+    │  USBCamera   │  │  VideoFile   │  │  WebcamSplit │
+    │  GPIOTamper  │  │  MockTamper  │  │  KeyTamper   │
+    │  SysfsThermal│  │  MockThermal │  │  MockThermal │
+    │  USBWatchdog │  │  MockWatchdog│  │  MockWatchdog│
+    │  PowerMonitor│  │  MockPower   │  │  MockPower   │
+    └──────────────┘  └──────────────┘  └──────────────┘
+      (Orange Pi)       (test videos)    (laptop webcam)
+```
+
+### 18.2 Provider Interface Contracts
+
+```python
+    # All providers implement these interfaces.
+    # Simulation and production providers are interchangeable.
+
+    class ICameraProvider:
+        def open(camera_id: str) -> bool
+        def read_frame() -> numpy.ndarray
+        def read_hires_frame() -> numpy.ndarray
+        def is_alive() -> bool
+        def release() -> None
+
+    class ITamperProvider:
+        def is_tampered() -> bool
+        def on_tamper(callback: Callable) -> None
+
+    class IThermalProvider:
+        def get_cpu_temp() -> float
+        def get_throttle_state() -> str   # normal|throttled|critical
+
+    class IPowerProvider:
+        def get_battery_pct() -> int
+        def get_power_source() -> str     # mains|battery
+        def is_power_cut() -> bool
+
+    class IWatchdogProvider:
+        def ping() -> None
+        def is_camera_alive(camera_id: str) -> bool
+        def reset_usb_port(port: str) -> bool
+```
+
+### 18.3 Configuration-Driven Mode Switching
+
+```yaml
+    # device_config.yaml
+
+    mode: "simulation"          # "simulation" | "webcam" | "production"
+
+    device:
+      device_id: "FARM-SIM-001"
+      farm_id: "farm_test_laptop"
+
+    camera:
+      simulation:
+        cam1_source: "test_videos/farm_intrusion_day.mp4"
+        cam2_source: "test_videos/farm_empty_night.mp4"
+        loop_video: true          # restart video when it ends
+        playback_speed: 1.0       # 0.5 = half speed, 2.0 = double
+      webcam:
+        cam1_source: 0            # /dev/video0 (laptop webcam)
+        cam2_source: 0            # same webcam, mirrored for cam2
+        split_mode: true          # split single webcam into two halves
+      production:
+        cam1_source: "/dev/video0"
+        cam2_source: "/dev/video2"
+
+    mqtt:
+      broker: "localhost"         # simulation: localhost Docker
+      port: 1883                  # simulation: no TLS needed
+      # port: 8883               # production: TLS
+
+    detection:
+      model_path: "models/yolov5n.onnx"
+      confidence_threshold: 0.6
+      temporal_frames: 3
+      cooldown_seconds: 300
+
+    simulation:
+      mock_battery_pct: 72
+      mock_power_source: "mains"
+      mock_cpu_temp: 55
+      mock_signal_dbm: -67
+      enable_debug_window: true   # show OpenCV window with bboxes
+      save_detection_frames: true # save frames that triggered alerts
+```
+
+### 18.4 Hardware-to-Simulation Mapping
+
+```
+    ┌──────────────────────┬────────────────────────────────────────┐
+    │ REAL HARDWARE        │ LAPTOP SIMULATION                      │
+    ├──────────────────────┼────────────────────────────────────────┤
+    │                      │                                        │
+    │ Orange Pi Zero 3     │ Developer laptop (same Python code)    │
+    │                      │                                        │
+    │ USB Camera 1 (front) │ Option A: Pre-recorded .mp4 video     │
+    │                      │ Option B: Laptop webcam (left half)    │
+    │                      │ Option C: RTSP stream from IP camera   │
+    │                      │                                        │
+    │ USB Camera 2 (rear)  │ Option A: Different .mp4 video        │
+    │                      │ Option B: Laptop webcam (right half)   │
+    │                      │ Option C: Second video source          │
+    │                      │                                        │
+    │ IR LEDs (night)      │ Use dark/low-light test videos         │
+    │                      │                                        │
+    │ 4G USB Dongle        │ localhost (Docker network)             │
+    │                      │                                        │
+    │ MQTT over cellular   │ Mosquitto in Docker (localhost:1883)   │
+    │                      │                                        │
+    │ Tamper switch (GPIO) │ Option A: MockTamper (configurable)    │
+    │                      │ Option B: Keyboard key press (T key)   │
+    │                      │ Option C: REST endpoint trigger        │
+    │                      │                                        │
+    │ Power bank / UPS     │ MockPower (returns configured values)  │
+    │                      │ Can simulate power cut mid-run         │
+    │                      │                                        │
+    │ CPU thermal sensor   │ MockThermal (adjustable temperature)   │
+    │                      │ Can simulate overheat scenario         │
+    │                      │                                        │
+    │ Hardware watchdog     │ MockWatchdog (logs pings, no reboot)  │
+    │ (/dev/watchdog)      │                                        │
+    │                      │                                        │
+    │ Firebase FCM         │ Option A: Console log (no Firebase)    │
+    │                      │ Option B: Real FCM (needs project)     │
+    │                      │                                        │
+    │ Android phone        │ Android emulator (AVD) or real phone   │
+    │                      │ API → http://10.0.2.2:8000             │
+    └──────────────────────┴────────────────────────────────────────┘
+```
+
+### 18.5 Full Laptop Simulation Stack
+
+```
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                        DEVELOPER LAPTOP                          │
+    │                                                                  │
+    │   ┌──────────────────────────────────────────────────────────┐  │
+    │   │  EDGE DAEMON (Python — runs natively, not in Docker)     │  │
+    │   │                                                          │  │
+    │   │  ┌──────────────┐  ┌──────────────┐                      │  │
+    │   │  │ VideoFile    │  │ VideoFile    │                      │  │
+    │   │  │ Provider     │  │ Provider     │                      │  │
+    │   │  │ "cam1.mp4"   │  │ "cam2.mp4"   │                      │  │
+    │   │  └──────┬───────┘  └──────┬───────┘                      │  │
+    │   │         │                 │                               │  │
+    │   │         ▼                 ▼                               │  │
+    │   │  ┌──────────────────────────────────────┐                │  │
+    │   │  │  Surveillance Loop                   │                │  │
+    │   │  │  (motion detect → YOLO → alert)      │                │  │
+    │   │  └──────────────────┬───────────────────┘                │  │
+    │   │                     │                                     │  │
+    │   │         ┌───────────┴───────────┐                        │  │
+    │   │         │                       │                        │  │
+    │   │  ┌──────▼──────┐  ┌─────────────▼──────────┐            │  │
+    │   │  │ MQTT Client │  │ Debug Window (cv2)      │            │  │
+    │   │  │ localhost   │  │ Live feed + bounding    │            │  │
+    │   │  │ :1883       │  │ boxes + confidence      │            │  │
+    │   │  └─────────────┘  │ + motion highlighting   │            │  │
+    │   │                   └────────────────────────┘            │  │
+    │   └──────────────────────────────────────────────────────────┘  │
+    │                                                                  │
+    │   ┌──────────────────────────────────────────────────────────┐  │
+    │   │  DOCKER COMPOSE (backend infrastructure)                 │  │
+    │   │                                                          │  │
+    │   │  ┌────────────┐ ┌────────────┐ ┌────────────┐           │  │
+    │   │  │ mosquitto  │ │  fastapi   │ │ postgres   │           │  │
+    │   │  │ :1883      │ │  :8000     │ │ :5432      │           │  │
+    │   │  └────────────┘ └────────────┘ └────────────┘           │  │
+    │   │                                                          │  │
+    │   │  ┌────────────┐                                          │  │
+    │   │  │   minio    │                                          │  │
+    │   │  │   :9000    │                                          │  │
+    │   │  └────────────┘                                          │  │
+    │   └──────────────────────────────────────────────────────────┘  │
+    │                                                                  │
+    │   ┌──────────────────────────────────────────────────────────┐  │
+    │   │  ANDROID EMULATOR (AVD)                                  │  │
+    │   │                                                          │  │
+    │   │  Flutter app → http://10.0.2.2:8000                     │  │
+    │   │  FCM → console log mock                                  │  │
+    │   └──────────────────────────────────────────────────────────┘  │
+    │                                                                  │
+    └──────────────────────────────────────────────────────────────────┘
+
+    Start commands:
+    1. docker compose up -d          (backend stack)
+    2. python edge/src/main.py       (edge daemon with debug window)
+    3. flutter run                   (mobile app on emulator)
+```
+
+### 18.6 Test Video Library
+
+```
+    edge/test_videos/
+    ├── intrusion/
+    │   ├── person_walk_day.mp4          Person walking in outdoor setting
+    │   ├── person_walk_night_ir.mp4     Person in IR/low-light footage
+    │   ├── person_running.mp4           Fast movement test
+    │   ├── two_people_day.mp4           Multiple person detection
+    │   ├── person_far_20m.mp4           Detection range limit test
+    │   └── person_crouch_slow.mp4       Slow, low-profile approach
+    │
+    ├── false_positives/
+    │   ├── empty_field_day.mp4          Static scene — must NOT alert
+    │   ├── empty_field_night.mp4        Dark static scene
+    │   ├── cow_walking.mp4              Large animal — must NOT alert
+    │   ├── dog_running.mp4              Small animal
+    │   ├── birds_flying.mp4             Birds crossing frame
+    │   ├── wind_crops_swaying.mp4       Moving vegetation
+    │   ├── shadow_movement_dusk.mp4     Long shadows at sunset
+    │   └── clothesline_windy.mp4        Clothes flapping in wind
+    │
+    ├── edge_cases/
+    │   ├── scarecrow_static.mp4         Human-shaped static object
+    │   ├── person_behind_tree.mp4       Partially occluded person
+    │   ├── person_with_umbrella.mp4     Unusual silhouette
+    │   ├── rain_heavy.mp4              Rain interference
+    │   ├── fog_morning.mp4             Low visibility
+    │   └── vehicle_headlights.mp4      Light glare at night
+    │
+    └── calibration/
+        ├── resolution_chart.mp4         Focus and clarity test
+        └── color_bars.mp4              Camera color calibration
+
+    Sources for test videos:
+    - Record with phone at a farm or open field
+    - COCO dataset video samples
+    - YouTube Creative Commons farm/surveillance footage
+    - Generate synthetic scenes with tools like Blender (optional)
+```
+
+### 18.7 Test Scenarios and Expected Results
+
+```
+    ┌────┬─────────────────────────────┬─────────────────┬────────────────────┐
+    │ #  │ Scenario                    │ Input            │ Expected Result    │
+    ├────┼─────────────────────────────┼─────────────────┼────────────────────┤
+    │    │                             │                  │                    │
+    │    │ DETECTION TESTS             │                  │                    │
+    │    │                             │                  │                    │
+    │ T1 │ Person enters frame         │ person_walk_day  │ Alert triggered    │
+    │    │ (daytime, clear)            │ .mp4             │ within 3 frames    │
+    │    │                             │                  │ conf > 0.6         │
+    │    │                             │                  │                    │
+    │ T2 │ Person enters frame         │ person_walk_     │ Alert triggered    │
+    │    │ (night, IR illumination)    │ night_ir.mp4     │ Night detection OK │
+    │    │                             │                  │                    │
+    │ T3 │ Empty field, no activity    │ empty_field_day  │ NO alert           │
+    │    │                             │ .mp4             │ 0 false positives  │
+    │    │                             │                  │                    │
+    │ T4 │ Cow walking through frame   │ cow_walking.mp4  │ NO alert           │
+    │    │                             │                  │ Motion detected    │
+    │    │                             │                  │ YOLO: not person   │
+    │    │                             │                  │                    │
+    │ T5 │ Wind blowing crops          │ wind_crops_      │ NO alert           │
+    │    │                             │ swaying.mp4      │ Motion below       │
+    │    │                             │                  │ threshold          │
+    │    │                             │                  │                    │
+    │ T6 │ Scarecrow in frame          │ scarecrow_       │ NO alert           │
+    │    │ (with exclusion zone set)   │ static.mp4       │ (after zone config)│
+    │    │                             │                  │                    │
+    │ T7 │ Two people simultaneously   │ two_people_      │ Alert triggered    │
+    │    │                             │ day.mp4          │ person_count: 2    │
+    │    │                             │                  │                    │
+    │ T8 │ Person at 20m distance      │ person_far_      │ Alert OR no alert  │
+    │    │ (detection limit)           │ 20m.mp4          │ (documents range)  │
+    │    │                             │                  │                    │
+    │    │ PIPELINE TESTS              │                  │                    │
+    │    │                             │                  │                    │
+    │ T9 │ Alert reaches mobile app    │ person_walk_day  │ MQTT msg received  │
+    │    │                             │ .mp4             │ by backend.        │
+    │    │                             │                  │ DB record created. │
+    │    │                             │                  │ Push sent to app.  │
+    │    │                             │                  │                    │
+    │T10 │ Alert snapshot viewable     │ (any intrusion   │ Image stored in    │
+    │    │ in mobile app               │  video)          │ MinIO. Viewable    │
+    │    │                             │                  │ via API presigned  │
+    │    │                             │                  │ URL in app.        │
+    │    │                             │                  │                    │
+    │T11 │ Arm/Disarm from app        │ User taps DISARM │ MQTT command sent. │
+    │    │                             │ in Flutter app   │ Edge daemon stops  │
+    │    │                             │                  │ surveillance loop. │
+    │    │                             │                  │ Re-arm resumes.    │
+    │    │                             │                  │                    │
+    │T12 │ On-demand snapshot          │ User taps        │ Edge captures frame│
+    │    │                             │ SNAPSHOT button  │ publishes to MQTT. │
+    │    │                             │                  │ App displays it.   │
+    │    │                             │                  │                    │
+    │    │ FAILURE SIMULATION TESTS    │                  │                    │
+    │    │                             │                  │                    │
+    │T13 │ Camera freeze               │ Pause video feed │ USB watchdog       │
+    │    │                             │ (inject frozen   │ detects stale      │
+    │    │                             │  frame)          │ frame. Logs reset  │
+    │    │                             │                  │ attempt. Continues │
+    │    │                             │                  │ with other camera. │
+    │    │                             │                  │                    │
+    │T14 │ Network disconnection       │ docker stop      │ Alerts queue in    │
+    │    │                             │ mosquitto        │ local deque.       │
+    │    │                             │                  │ Detection continues│
+    │    │                             │                  │ After restart:     │
+    │    │                             │                  │ queue flushed.     │
+    │    │                             │                  │                    │
+    │T15 │ MQTT broker unavailable     │ docker stop      │ Edge auto-         │
+    │    │ on startup                  │ mosquitto, then  │ reconnects with    │
+    │    │                             │ start edge       │ backoff. Connects  │
+    │    │                             │ daemon           │ when broker is up. │
+    │    │                             │                  │                    │
+    │T16 │ CPU overheat simulation     │ Set mock_cpu_    │ Scan rate reduces. │
+    │    │                             │ temp: 85 in      │ Motion-only mode   │
+    │    │                             │ config           │ at 85C. Log warns. │
+    │    │                             │                  │                    │
+    │T17 │ Power cut simulation        │ Set mock_power_  │ Alert: "on battery"│
+    │    │                             │ source: battery  │ Scan rate reduces  │
+    │    │                             │ via REST or      │ to conserve power. │
+    │    │                             │ config change    │                    │
+    │    │                             │                  │                    │
+    │T18 │ Tamper detection            │ Press 'T' key    │ Instant tamper     │
+    │    │                             │ (KeyTamper       │ alert via MQTT.    │
+    │    │                             │  provider)       │ Logged in app.     │
+    │    │                             │                  │                    │
+    │    │ PERFORMANCE TESTS           │                  │                    │
+    │    │                             │                  │                    │
+    │T19 │ Inference latency           │ 100 frames from  │ Avg inference      │
+    │    │ benchmark                   │ test video       │ < 300ms on laptop  │
+    │    │                             │                  │ (ARM will differ)  │
+    │    │                             │                  │                    │
+    │T20 │ Full scan cycle timing      │ Both cameras,    │ Full 360 cycle     │
+    │    │                             │ alternating      │ < 1000ms           │
+    │    │                             │                  │                    │
+    │T21 │ Memory stability            │ Run for 1 hour   │ No memory leak.    │
+    │    │ (long-running soak test)    │ with looping     │ RSS stays within   │
+    │    │                             │ test videos      │ 500MB on laptop.   │
+    │    │                             │                  │                    │
+    │T22 │ Alert queue capacity        │ Stop broker,     │ Queue holds 100    │
+    │    │                             │ trigger 150      │ alerts. Oldest     │
+    │    │                             │ detections       │ evicted. No crash. │
+    └────┴─────────────────────────────┴─────────────────┴────────────────────┘
+```
+
+### 18.8 Debug Window (Simulation Only)
+
+```
+    When enable_debug_window: true, an OpenCV window renders:
+
+    ┌──────────────────────────────────────────────────────────┐
+    │  ANTI-THEFT SMART SYSTEM — Debug View                    │
+    │  Mode: SIMULATION | Status: ARMED | FPS: 3.2            │
+    ├────────────────────────────┬─────────────────────────────┤
+    │                            │                             │
+    │   CAMERA 1 (Front/North)   │   CAMERA 2 (Rear/South)    │
+    │                            │                             │
+    │   ┌────────────────────┐   │   ┌────────────────────┐   │
+    │   │                    │   │   │                    │   │
+    │   │    ┌──────┐        │   │   │                    │   │
+    │   │    │PERSON│  0.87  │   │   │   (no detections)  │   │
+    │   │    │      │        │   │   │                    │   │
+    │   │    │      │        │   │   │                    │   │
+    │   │    └──────┘        │   │   │                    │   │
+    │   │                    │   │   │                    │   │
+    │   └────────────────────┘   │   └────────────────────┘   │
+    │                            │                             │
+    │   Motion: YES (area: 8420) │   Motion: NO               │
+    │   YOLO:   PERSON (0.87)    │   YOLO:   skipped          │
+    │   Temporal: 3/3 CONFIRMED  │   Temporal: 0/3            │
+    │   Action: ALERT SENT       │   Action: none             │
+    │                            │                             │
+    ├────────────────────────────┴─────────────────────────────┤
+    │  Alerts today: 3 | Queue: 0 | MQTT: connected           │
+    │  CPU: 55C | Battery: 72% (mains) | Uptime: 00:42:15     │
+    │                                                          │
+    │  Keys: [Q]uit  [T]amper  [P]ower-cut  [D]isarm          │
+    └──────────────────────────────────────────────────────────┘
+
+    Bounding boxes drawn in:
+    - GREEN:  person detected, confidence > threshold
+    - YELLOW: person detected, below threshold (not triggered)
+    - RED:    alert triggered (3-frame confirmed)
+    - GRAY:   exclusion zone overlay
+```
+
+### 18.9 Simulation REST API (Debug Controls)
+
+```
+    An additional debug REST server runs on :9090 during simulation
+    mode, allowing test automation and manual scenario injection.
+
+    ┌────────┬──────────────────────────────┬──────────────────────────┐
+    │ Method │ Endpoint                     │ Description              │
+    ├────────┼──────────────────────────────┼──────────────────────────┤
+    │ GET    │ /sim/status                  │ Current daemon state     │
+    │ POST   │ /sim/camera/{id}/freeze      │ Simulate camera freeze   │
+    │ POST   │ /sim/camera/{id}/unfreeze    │ Resume camera feed       │
+    │ POST   │ /sim/power/cut               │ Simulate power cut       │
+    │ POST   │ /sim/power/restore           │ Restore mains power      │
+    │ POST   │ /sim/thermal/set?temp=85     │ Set mock CPU temperature │
+    │ POST   │ /sim/tamper/trigger          │ Trigger tamper alert     │
+    │ POST   │ /sim/network/disconnect      │ Simulate network loss    │
+    │ POST   │ /sim/network/reconnect       │ Restore network          │
+    │ GET    │ /sim/metrics                 │ Detection stats, FPS,    │
+    │        │                              │ alert count, queue depth │
+    └────────┴──────────────────────────────┴──────────────────────────┘
+
+    Usage example (inject power cut during test):
+    curl -X POST http://localhost:9090/sim/power/cut
+    # Observe: daemon switches to battery mode, reduces scan rate
+    # Mobile app receives "on battery" notification
+
+    curl -X POST http://localhost:9090/sim/power/restore
+    # Observe: daemon resumes normal scan rate
+```
+
+### 18.10 Automated Test Runner
+
+```
+    tests/
+    ├── conftest.py                    # Shared fixtures, mock providers
+    ├── unit/
+    │   ├── test_motion_detector.py    # Frame diff logic, threshold
+    │   ├── test_human_detector.py     # YOLO inference, post-processing
+    │   ├── test_alert_manager.py      # Temporal filter, cooldown, queue
+    │   ├── test_exclusion_zones.py    # Zone masking, bbox filtering
+    │   ├── test_command_handler.py    # Arm/disarm/snapshot processing
+    │   └── test_thermal_manager.py    # Throttle/pause thresholds
+    │
+    ├── integration/
+    │   ├── test_detection_pipeline.py # Camera → motion → YOLO → alert
+    │   ├── test_mqtt_flow.py          # Alert publish → broker → consume
+    │   ├── test_offline_queue.py      # Disconnect, queue, reconnect, flush
+    │   ├── test_camera_failover.py    # Freeze cam1, verify cam2 continues
+    │   └── test_arm_disarm.py         # MQTT command → daemon state change
+    │
+    ├── e2e/
+    │   ├── test_alert_to_app.py       # Detection → MQTT → API → DB
+    │   ├── test_snapshot_request.py   # App → API → MQTT → edge → image
+    │   └── test_device_offline.py     # Stop heartbeat → cloud notification
+    │
+    └── performance/
+        ├── test_inference_latency.py  # Benchmark YOLO on 100 frames
+        ├── test_scan_cycle.py         # Measure full 360 cycle time
+        └── test_memory_soak.py        # 1-hour run, assert no leak
+
+    Run:
+    pytest tests/unit/                    # Fast, no Docker needed
+    pytest tests/integration/             # Requires Docker Compose up
+    pytest tests/e2e/                     # Full stack must be running
+    pytest tests/performance/ -s          # Benchmarks, show output
+```
+
+### 18.11 CI/CD Pipeline for Simulation Tests
+
+```
+    ┌──────────────────────────────────────────────────────────────┐
+    │                  GitHub Actions Workflow                      │
+    │                                                              │
+    │  on: [push, pull_request]                                   │
+    │                                                              │
+    │  jobs:                                                       │
+    │                                                              │
+    │  ┌─── unit-tests ───────────────────────────────────────┐   │
+    │  │  runs-on: ubuntu-latest                               │   │
+    │  │  steps:                                               │   │
+    │  │    - Setup Python 3.11                                │   │
+    │  │    - Install dependencies                             │   │
+    │  │    - Download YOLOv5n ONNX model (cached)            │   │
+    │  │    - pytest tests/unit/ --cov                         │   │
+    │  │  duration: ~2 min                                     │   │
+    │  └───────────────────────────────────────────────────────┘   │
+    │                      │                                       │
+    │                      ▼                                       │
+    │  ┌─── integration-tests ────────────────────────────────┐   │
+    │  │  runs-on: ubuntu-latest                               │   │
+    │  │  services: mosquitto, postgres, minio                 │   │
+    │  │  steps:                                               │   │
+    │  │    - Setup Python 3.11                                │   │
+    │  │    - Docker Compose up (backend)                      │   │
+    │  │    - Download test videos (cached)                    │   │
+    │  │    - pytest tests/integration/                        │   │
+    │  │  duration: ~5 min                                     │   │
+    │  └───────────────────────────────────────────────────────┘   │
+    │                      │                                       │
+    │                      ▼                                       │
+    │  ┌─── e2e-tests ───────────────────────────────────────┐    │
+    │  │  runs-on: ubuntu-latest                              │    │
+    │  │  steps:                                              │    │
+    │  │    - Docker Compose up (full backend)                │    │
+    │  │    - Start edge daemon (simulation mode)             │    │
+    │  │    - pytest tests/e2e/                               │    │
+    │  │  duration: ~8 min                                    │    │
+    │  └──────────────────────────────────────────────────────┘    │
+    │                                                              │
+    └──────────────────────────────────────────────────────────────┘
+```
+
+### 18.12 Simulation to Production Transition
+
+```
+    STEP 1: Develop and test on laptop (simulation mode)
+    ┌─────────────────────────────────┐
+    │  mode: "simulation"             │
+    │  Video files → YOLO → MQTT     │
+    │  Docker backend on localhost    │
+    │  Flutter on emulator            │
+    │  All 22 test scenarios pass     │
+    └────────────────┬────────────────┘
+                     │
+                     │  All tests green? Proceed.
+                     ▼
+    STEP 2: Test with laptop webcam (webcam mode)
+    ┌─────────────────────────────────┐
+    │  mode: "webcam"                 │
+    │  Laptop webcam as camera input  │
+    │  Walk in front of laptop        │
+    │  Verify real-time detection     │
+    │  Verify latency < 5s           │
+    └────────────────┬────────────────┘
+                     │
+                     │  Real-time detection works? Proceed.
+                     ▼
+    STEP 3: Bench test with Orange Pi (production mode, on desk)
+    ┌─────────────────────────────────┐
+    │  mode: "production"             │
+    │  Deploy code to Orange Pi       │
+    │  Connect real USB cameras       │
+    │  Backend still on cloud VPS     │
+    │  Test with real 4G dongle       │
+    │  Run same test scenarios        │
+    │  Measure actual inference time  │
+    └────────────────┬────────────────┘
+                     │
+                     │  Runs stable for 24 hours? Proceed.
+                     ▼
+    STEP 4: Field deployment
+    ┌─────────────────────────────────┐
+    │  mode: "production"             │
+    │  Mount at farm on 12ft pole     │
+    │  Connect power + UPS            │
+    │  Final tuning:                  │
+    │  - Adjust confidence threshold  │
+    │  - Configure exclusion zones    │
+    │  - Set surveillance schedule    │
+    │  - Test night vision            │
+    │  Monitor for 1 week             │
+    └─────────────────────────────────┘
+
+    Code changes between steps: ZERO
+    Only device_config.yaml changes.
 ```
 
 ---

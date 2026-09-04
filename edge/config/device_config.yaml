@@ -5,8 +5,8 @@
 mode: "simulation"  # "simulation" | "webcam" | "production"
 
 device:
-  device_id: "sim-cam-01"
-  farm_id: "test_farm"
+  device_id: "FARM-SIM-001"
+  farm_id: "farm_1"
 
 camera:
   simulation:
@@ -36,9 +36,9 @@ detection:
   model_path: "models/yolov5n.onnx"
   confidence_threshold: 0.6
   nms_threshold: 0.45
-  temporal_frames: 3
-  cooldown_seconds: 300
-  min_motion_area: 3000
+  temporal_frames: 2
+  cooldown_seconds: 30
+  min_motion_area: 500
 
 schedule:
   enabled: false

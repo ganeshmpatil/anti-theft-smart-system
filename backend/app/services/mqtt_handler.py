@@ -186,7 +186,7 @@ class MQTTHandler:
                     .order_by(Alert.created_at.desc())
                     .first()
                 )
-                if latest_alert and not latest_alert.image_path:
+                if latest_alert:
                     latest_alert.image_path = object_name
                     db.commit()
         finally:

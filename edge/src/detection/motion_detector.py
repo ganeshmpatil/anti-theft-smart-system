@@ -9,12 +9,21 @@ import numpy as np
 
 
 class MotionDetector:
-    """Detects motion by computing absolute frame difference."""
+    """Detects motion by computing absolute frame difference.
 
-    def __init__(self, min_contour_area: int = 3000, blur_kernel: int = 21):
+    Uses a slowly-updating reference frame instead of the immediately
+    previous frame so that gradual motion (e.g. a person walking slowly)
+    still accumulates a visible pixel delta.
+    """
+
+    def __init__(self, min_contour_area: int = 3000, blur_kernel: int = 21,
+                 pixel_threshold: int = 20, ref_update_interval: int = 10):
         self._min_area = min_contour_area
         self._blur_kernel = (blur_kernel, blur_kernel)
-        self._prev_gray: np.ndarray | None = None
+        self._pixel_threshold = pixel_threshold
+        self._ref_update_interval = ref_update_interval
+        self._ref_gray: np.ndarray | None = None
+        self._frame_count = 0
 
     def detect(self, frame: np.ndarray) -> tuple[bool, int]:
         """Check if significant motion exists in the frame.
@@ -28,14 +37,19 @@ class MotionDetector:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, self._blur_kernel, 0)
 
-        if self._prev_gray is None:
-            self._prev_gray = gray
+        if self._ref_gray is None:
+            self._ref_gray = gray
             return False, 0
 
-        delta = cv2.absdiff(self._prev_gray, gray)
-        self._prev_gray = gray
+        delta = cv2.absdiff(self._ref_gray, gray)
 
-        thresh = cv2.threshold(delta, 30, 255, cv2.THRESH_BINARY)[1]
+        # Update reference frame periodically (not every frame)
+        self._frame_count += 1
+        if self._frame_count >= self._ref_update_interval:
+            self._ref_gray = gray
+            self._frame_count = 0
+
+        thresh = cv2.threshold(delta, self._pixel_threshold, 255, cv2.THRESH_BINARY)[1]
         thresh = cv2.dilate(thresh, None, iterations=2)
 
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -49,5 +63,6 @@ class MotionDetector:
         return total_area > 0, total_area
 
     def reset(self):
-        """Reset the previous frame reference (e.g., after camera switch)."""
-        self._prev_gray = None
+        """Reset the reference frame (e.g., after camera switch)."""
+        self._ref_gray = None
+        self._frame_count = 0

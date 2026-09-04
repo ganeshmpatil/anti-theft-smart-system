@@ -154,7 +154,7 @@ class HumanDetector:
 
         detections = []
         for i in indices:
-            idx = i if isinstance(i, int) else i[0]
+            idx = int(i)
             bx, by, bw, bh = boxes[idx]
             detections.append(Detection(
                 x=max(0, bx), y=max(0, by),

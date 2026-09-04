@@ -129,15 +129,20 @@ class MQTTClient:
         return self._connected
 
     def _on_connect(self, client, userdata, flags, rc, properties=None):
-        if rc == 0:
+        rc_value = getattr(rc, 'value', rc)
+        if rc_value == 0:
+            was_connected = self._connected
             self._connected = True
-            logger.info("MQTT connected to %s:%d", self._broker, self._port)
+            if not was_connected:
+                logger.info("MQTT connected to %s:%d", self._broker, self._port)
+            else:
+                logger.debug("MQTT reconnected to %s:%d", self._broker, self._port)
             # Subscribe to command and config topics
             client.subscribe(f"{self._topic_prefix}/command", qos=1)
             client.subscribe(f"{self._topic_prefix}/config", qos=1)
             self.publish_status("online")
         else:
-            logger.error("MQTT connection failed with code %d", rc)
+            logger.error("MQTT connection failed with code %s", rc)
 
     def _on_disconnect(self, client, userdata, flags, rc, properties=None):
         self._connected = False

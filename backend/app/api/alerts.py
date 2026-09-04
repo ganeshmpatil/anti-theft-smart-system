@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.database import Alert, Device, Farm, User
+from app.models.database import Alert, Device, DeviceFarmer, User
 from app.models.schemas import AlertAcknowledge, AlertResponse
 from app.api.deps import get_current_user
 
@@ -21,11 +21,9 @@ def _get_storage(request: Request):
 
 
 def _user_device_ids(user: User, db: Session) -> list[int]:
-    """Get all device IDs owned by the user."""
-    farm_ids = [f.id for f in db.query(Farm).filter(Farm.owner_id == user.id).all()]
-    if not farm_ids:
-        return []
-    return [d.id for d in db.query(Device).filter(Device.farm_id.in_(farm_ids)).all()]
+    """Get all device IDs linked to the user via DeviceFarmer."""
+    links = db.query(DeviceFarmer).filter(DeviceFarmer.user_id == user.id).all()
+    return [link.device_id for link in links]
 
 
 @router.get("", response_model=list[AlertResponse])

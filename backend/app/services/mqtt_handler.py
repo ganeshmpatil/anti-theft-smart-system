@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.session import SessionLocal
-from app.models.database import Alert, Device
+from app.models.database import Alert, Device, DeviceFarmer, User
 from app.services.notification import send_push_notification
 from app.services.storage import StorageService
 
@@ -193,7 +193,10 @@ class MQTTHandler:
             db.close()
 
     def _handle_heartbeat(self, device_uid: str, payload: bytes):
-        """Process device heartbeat — update health metrics."""
+        """Process device heartbeat — update health metrics.
+
+        Auto-registers unknown devices when a heartbeat arrives from a new device_uid.
+        """
         try:
             data = json.loads(payload.decode())
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -203,7 +206,14 @@ class MQTTHandler:
         try:
             device = db.query(Device).filter(Device.device_uid == device_uid).first()
             if not device:
-                return
+                # Auto-register: edge device came online, create Device row
+                device = Device(
+                    device_uid=device_uid,
+                    status="online",
+                )
+                db.add(device)
+                db.flush()
+                logger.info("Auto-registered new device: %s (id=%d)", device_uid, device.id)
 
             device.last_heartbeat = datetime.now(timezone.utc)
             device.battery_pct = data.get("battery_pct", -1)
@@ -240,45 +250,53 @@ class MQTTHandler:
             db.close()
 
     def _notify_owner(self, db: Session, device: Device, alert: Alert, data: dict):
-        """Send push notification to the farm owner."""
-        farm = device.farm
-        if not farm:
-            return
-        owner = farm.owner
-        if not owner or not owner.fcm_token:
-            return
-
+        """Send push notification to ALL farmers linked to the device."""
         confidence = data.get("detection", {}).get("confidence", 0)
         event_type = data.get("event_type", "intrusion_detected")
 
+        farm = device.farm
+        farm_name = farm.name if farm else device.device_uid
+
         if event_type == "tamper_detected":
             title = "TAMPER ALERT"
-            body = f"Device {device.device_uid} at {farm.name} has been tampered with!"
+            body = f"Device {device.device_uid} at {farm_name} has been tampered with!"
         else:
             title = "INTRUSION ALERT"
-            body = (f"Person detected at {farm.name} "
+            body = (f"Person detected at {farm_name} "
                     f"({data.get('direction', 'unknown')} camera, "
                     f"confidence: {confidence:.0%})")
 
-        send_push_notification(
-            fcm_token=owner.fcm_token,
-            title=title,
-            body=body,
-            data={"alert_id": str(alert.id), "device_uid": device.device_uid},
-        )
+        # Find all linked farmers and notify each one
+        links = db.query(DeviceFarmer).filter(DeviceFarmer.device_id == device.id).all()
+        for link in links:
+            # Only notify if monitoring is enabled for this farmer-device link
+            if not link.monitoring_enabled:
+                continue
+            farmer = db.query(User).filter(User.id == link.user_id).first()
+            if not farmer or not farmer.fcm_token:
+                continue
+
+            send_push_notification(
+                fcm_token=farmer.fcm_token,
+                title=title,
+                body=body,
+                data={"alert_id": str(alert.id), "device_uid": device.device_uid},
+            )
 
     def _notify_device_offline(self, db: Session, device: Device):
-        """Notify owner that a device went offline unexpectedly."""
+        """Notify all linked farmers that a device went offline unexpectedly."""
         farm = device.farm
-        if not farm:
-            return
-        owner = farm.owner
-        if not owner or not owner.fcm_token:
-            return
+        farm_name = farm.name if farm else device.device_uid
 
-        send_push_notification(
-            fcm_token=owner.fcm_token,
-            title="Device Offline",
-            body=f"Device {device.device_uid} at {farm.name} is unreachable. Check power and connectivity.",
-            data={"device_uid": device.device_uid, "event": "device_offline"},
-        )
+        links = db.query(DeviceFarmer).filter(DeviceFarmer.device_id == device.id).all()
+        for link in links:
+            farmer = db.query(User).filter(User.id == link.user_id).first()
+            if not farmer or not farmer.fcm_token:
+                continue
+
+            send_push_notification(
+                fcm_token=farmer.fcm_token,
+                title="Device Offline",
+                body=f"Device {device.device_uid} at {farm_name} is unreachable. Check power and connectivity.",
+                data={"device_uid": device.device_uid, "event": "device_offline"},
+            )

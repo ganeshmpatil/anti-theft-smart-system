@@ -21,25 +21,50 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> register(String email, String password, String fullName) async {
-    final data = await ApiClient.post('/auth/register', {
-      'email': email,
+  Future<void> register(
+    String phone,
+    String password,
+    String fullName,
+    String address, {
+    String? email,
+  }) async {
+    final body = <String, dynamic>{
+      'phone': phone,
       'password': password,
       'full_name': fullName,
+      'address': address,
+    };
+    if (email != null && email.isNotEmpty) {
+      body['email'] = email;
+    }
+
+    final data = await ApiClient.post('/auth/register', body, auth: false);
+    final token = AuthToken.fromJson(data);
+    await _saveToken(token);
+  }
+
+  Future<void> login(String phone, String password) async {
+    final data = await ApiClient.post('/auth/login', {
+      'phone': phone,
+      'password': password,
     }, auth: false);
 
     final token = AuthToken.fromJson(data);
     await _saveToken(token);
   }
 
-  Future<void> login(String email, String password) async {
-    final data = await ApiClient.post('/auth/login', {
-      'email': email,
-      'password': password,
-    }, auth: false);
+  Future<Map<String, dynamic>> uploadSelfie(String filePath) async {
+    final data = await ApiClient.multipartPost(
+      '/auth/selfie',
+      'file',
+      filePath,
+    );
+    return Map<String, dynamic>.from(data);
+  }
 
-    final token = AuthToken.fromJson(data);
-    await _saveToken(token);
+  Future<Map<String, dynamic>> getProfile() async {
+    final data = await ApiClient.get('/auth/profile');
+    return Map<String, dynamic>.from(data);
   }
 
   Future<void> _saveToken(AuthToken token) async {
@@ -60,7 +85,7 @@ class AuthService extends ChangeNotifier {
     try {
       await ApiClient.post('/auth/fcm-token', {'fcm_token': fcmToken});
     } catch (_) {
-      // Non-critical — silently ignore
+      // Non-critical -- silently ignore
     }
   }
 }

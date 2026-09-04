@@ -19,14 +19,18 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    phone = Column(String(20), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), default="")
+    address = Column(Text, default="")
+    selfie_path = Column(String(500), default="")
     fcm_token = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     farms = relationship("Farm", back_populates="owner", cascade="all, delete-orphan")
+    device_links = relationship("DeviceFarmer", back_populates="user", cascade="all, delete-orphan")
 
 
 class Farm(Base):
@@ -48,7 +52,7 @@ class Device(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_uid = Column(String(100), unique=True, nullable=False)
-    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
+    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=True)
     status = Column(String(50), default="offline")  # armed / disarmed / offline
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
     battery_pct = Column(Integer, default=-1)
@@ -62,10 +66,33 @@ class Device(Base):
     farm = relationship("Farm", back_populates="devices")
     alerts = relationship("Alert", back_populates="device", cascade="all, delete-orphan")
     command_logs = relationship("CommandLog", back_populates="device", cascade="all, delete-orphan")
+    farmer_links = relationship("DeviceFarmer", back_populates="device", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_devices_farm", "farm_id"),
         Index("idx_devices_heartbeat", "last_heartbeat"),
+    )
+
+
+class DeviceFarmer(Base):
+    """Many-to-many link between devices and farmers (users)."""
+    __tablename__ = "device_farmers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    monitoring_enabled = Column(Boolean, default=True)
+    schedule_start_hour = Column(Integer, nullable=True)
+    schedule_end_hour = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    device = relationship("Device", back_populates="farmer_links")
+    user = relationship("User", back_populates="device_links")
+
+    __table_args__ = (
+        UniqueConstraint("device_id", "user_id", name="uq_device_farmer"),
+        Index("idx_device_farmer_device", "device_id"),
+        Index("idx_device_farmer_user", "user_id"),
     )
 
 

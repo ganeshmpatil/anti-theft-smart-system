@@ -11,13 +11,22 @@ class DeviceDetailScreen extends StatefulWidget {
 }
 
 class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
+  late Device _device;
   bool _sendingCommand = false;
+  bool _updatingMonitoring = false;
+  bool _updatingSchedule = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _device = widget.device;
+  }
 
   Future<void> _sendCommand(String action) async {
     setState(() => _sendingCommand = true);
     try {
       await ApiClient.post('/commands', {
-        'device_id': widget.device.id,
+        'device_id': _device.id,
         'action': action,
         'params': {},
       });
@@ -39,13 +48,106 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
   }
 
+  Future<void> _toggleMonitoring(bool value) async {
+    setState(() => _updatingMonitoring = true);
+    try {
+      await ApiClient.put(
+        '/devices/${_device.id}/monitoring',
+        {'monitoring_enabled': value},
+      );
+      setState(() {
+        _device = _device.copyWith(monitoringEnabled: value);
+      });
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _updatingMonitoring = false);
+    }
+  }
+
+  Future<void> _updateSchedule({
+    required int startHour,
+    required int endHour,
+    required bool enabled,
+  }) async {
+    setState(() => _updatingSchedule = true);
+    try {
+      await ApiClient.put(
+        '/devices/${_device.id}/schedule',
+        {
+          'start_hour': startHour,
+          'end_hour': endHour,
+          'enabled': enabled,
+        },
+      );
+      setState(() {
+        _device = _device.copyWith(
+          scheduleStartHour: startHour,
+          scheduleEndHour: endHour,
+        );
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Schedule updated')),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _updatingSchedule = false);
+    }
+  }
+
+  Future<void> _pickHour({required bool isStart}) async {
+    final currentHour = isStart
+        ? (_device.scheduleStartHour ?? 6)
+        : (_device.scheduleEndHour ?? 18);
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: currentHour, minute: 0),
+      helpText: isStart ? 'Select start hour' : 'Select end hour',
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final startHour =
+          isStart ? picked.hour : (_device.scheduleStartHour ?? 6);
+      final endHour =
+          isStart ? (_device.scheduleEndHour ?? 18) : picked.hour;
+
+      await _updateSchedule(
+        startHour: startHour,
+        endHour: endHour,
+        enabled: true,
+      );
+    }
+  }
+
+  String _formatHour(int? hour) {
+    if (hour == null) return '--:00';
+    return '${hour.toString().padLeft(2, '0')}:00';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final d = widget.device;
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text(d.deviceUid)),
+      appBar: AppBar(title: Text(_device.deviceUid)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -58,16 +160,16 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   Icon(
                     Icons.circle,
                     size: 16,
-                    color: d.isOnline ? Colors.green : Colors.red,
+                    color: _device.isOnline ? Colors.green : Colors.red,
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    d.isOnline ? 'Online' : 'Offline',
+                    _device.isOnline ? 'Online' : 'Offline',
                     style: theme.textTheme.titleMedium,
                   ),
                   const Spacer(),
-                  if (d.lastHeartbeat != null)
-                    Text('Last seen: ${d.lastHeartbeat}',
+                  if (_device.lastHeartbeat != null)
+                    Text('Last seen: ${_device.lastHeartbeat}',
                         style: theme.textTheme.bodySmall),
                 ],
               ),
@@ -75,7 +177,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Info
+          // Device Info
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -84,9 +186,110 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                 children: [
                   Text('Device Info', style: theme.textTheme.titleMedium),
                   const Divider(),
-                  _InfoRow('Device UID', d.deviceUid),
-                  _InfoRow('Device ID', '${d.id}'),
-                  _InfoRow('Farm ID', '${d.farmId}'),
+                  _InfoRow('Device UID', _device.deviceUid),
+                  _InfoRow('Device ID', '${_device.id}'),
+                  if (_device.batteryPct != null)
+                    _InfoRow('Battery', '${_device.batteryPct}%'),
+                  if (_device.cpuTemp != null)
+                    _InfoRow(
+                        'CPU Temp', '${_device.cpuTemp!.toStringAsFixed(1)} C'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Monitoring toggle
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Monitoring', style: theme.textTheme.titleMedium),
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _device.monitoringEnabled
+                                ? 'Monitoring Active'
+                                : 'Monitoring Paused',
+                            style: theme.textTheme.bodyLarge,
+                          ),
+                          Text(
+                            'Toggle to enable or disable monitoring',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                      _updatingMonitoring
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Switch(
+                              value: _device.monitoringEnabled,
+                              onChanged: _toggleMonitoring,
+                            ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Schedule section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Daily Schedule', style: theme.textTheme.titleMedium),
+                      if (_updatingSchedule)
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                  const Divider(),
+                  Text(
+                    'Set a daily time window for automatic monitoring',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _pickHour(isStart: true),
+                          icon: const Icon(Icons.play_arrow),
+                          label: Text(
+                              'Start: ${_formatHour(_device.scheduleStartHour)}'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _pickHour(isStart: false),
+                          icon: const Icon(Icons.stop),
+                          label: Text(
+                              'End: ${_formatHour(_device.scheduleEndHour)}'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

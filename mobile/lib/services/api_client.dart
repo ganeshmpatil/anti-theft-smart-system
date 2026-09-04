@@ -102,6 +102,27 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  static Future<dynamic> multipartPost(
+      String path, String fileField, String filePath,
+      {Map<String, String>? fields}) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final request = http.MultipartRequest('POST', uri);
+
+    final token = await getToken();
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    request.files.add(await http.MultipartFile.fromPath(fileField, filePath));
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    return _handleResponse(response);
+  }
+
   static Future<dynamic> delete(String path) async {
     final response = await http.delete(
       Uri.parse('$baseUrl$path'),

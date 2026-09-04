@@ -138,7 +138,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const Card(
                           child: Padding(
                             padding: EdgeInsets.all(24),
-                            child: Text('No devices registered yet.',
+                            child: Text('No devices linked yet.',
                                 textAlign: TextAlign.center),
                           ),
                         )

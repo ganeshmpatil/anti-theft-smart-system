@@ -13,7 +13,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
   String? _error;
@@ -28,7 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await context
           .read<AuthService>()
-          .login(_emailCtrl.text.trim(), _passwordCtrl.text);
+          .login(_phoneCtrl.text.trim(), _passwordCtrl.text);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
@@ -40,7 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
   }
@@ -67,15 +67,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 40),
                   TextFormField(
-                    controller: _emailCtrl,
+                    controller: _phoneCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon: Icon(Icons.email_outlined),
+                      labelText: 'Phone Number',
+                      prefixIcon: Icon(Icons.phone_outlined),
                       border: OutlineInputBorder(),
                     ),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (v) =>
-                        v == null || !v.contains('@') ? 'Enter a valid email' : null,
+                    keyboardType: TextInputType.phone,
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) {
+                        return 'Enter your phone number';
+                      }
+                      if (v.trim().length < 10) {
+                        return 'Enter a valid phone number';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
@@ -87,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     obscureText: true,
                     validator: (v) =>
-                        v == null || v.length < 6 ? 'Min 6 characters' : null,
+                        v == null || v.length < 8 ? 'Min 8 characters' : null,
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),

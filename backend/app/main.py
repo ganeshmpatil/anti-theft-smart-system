@@ -12,7 +12,7 @@ from app.db.session import engine
 from app.models.database import Base
 from app.services.mqtt_handler import MQTTHandler
 from app.services.storage import StorageService
-from app.api import auth, devices, alerts, commands
+from app.api import auth, devices, alerts, commands, live_feed
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     mqtt.start()
     app.state.mqtt_handler = mqtt
     commands.set_mqtt_handler(mqtt)
+    live_feed.set_mqtt_handler(mqtt)
     logger.info("MQTT handler started.")
 
     yield
@@ -71,6 +72,7 @@ app.include_router(auth.router)
 app.include_router(devices.router)
 app.include_router(alerts.router)
 app.include_router(commands.router)
+app.include_router(live_feed.router)
 
 
 @app.get("/health")

@@ -44,7 +44,7 @@ def send_command(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    valid_actions = {"arm", "disarm", "snapshot", "reboot"}
+    valid_actions = {"arm", "disarm", "snapshot", "reboot", "live_feed_start", "live_feed_stop"}
     if body.action not in valid_actions:
         raise HTTPException(status_code=400,
                             detail=f"Invalid action. Must be one of: {valid_actions}")

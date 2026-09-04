@@ -116,6 +116,11 @@ def main():
         cooldown_seconds=det_cfg.get("cooldown_seconds", 300),
     )
 
+    # Start tamper monitoring (GPIO polling thread in production mode)
+    if hasattr(providers.tamper, "start"):
+        providers.tamper.start()
+        logger.info("Tamper monitor started")
+
     # Initialize command handler
     command_handler = CommandHandler()
     mqtt_client.on_command(command_handler.handle)
@@ -156,6 +161,8 @@ def main():
     finally:
         # Cleanup — always runs even if loop.run() raises
         logger.info("Shutting down...")
+        if hasattr(providers.tamper, "stop"):
+            providers.tamper.stop()
         providers.cam1.release()
         providers.cam2.release()
         mqtt_client.disconnect()

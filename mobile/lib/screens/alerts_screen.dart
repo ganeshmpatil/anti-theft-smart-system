@@ -79,6 +79,99 @@ class _AlertsScreenState extends State<AlertsScreen> {
     }
   }
 
+  Future<void> _showSuspendDialog(Alert alert) async {
+    final durations = [
+      {'label': '15 minutes', 'minutes': 15},
+      {'label': '30 minutes', 'minutes': 30},
+      {'label': '1 hour', 'minutes': 60},
+      {'label': '2 hours', 'minutes': 120},
+      {'label': '4 hours', 'minutes': 240},
+      {'label': '8 hours', 'minutes': 480},
+      {'label': '24 hours', 'minutes': 1440},
+    ];
+
+    if (!mounted) return;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Suspend Alerts'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pause alerts for Device #${alert.deviceId}.\n'
+              'You will not receive notifications during this time.',
+              style: Theme.of(dialogContext).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            ...durations.map((d) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.timer),
+                  title: Text(d['label'] as String),
+                  onTap: () =>
+                      Navigator.pop(dialogContext, d['minutes'] as int),
+                )),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    try {
+      await ApiClient.put(
+        '/devices/${alert.deviceId}/suspend',
+        {'duration_minutes': selected},
+      );
+      if (mounted) {
+        final label = durations
+            .firstWhere((d) => d['minutes'] == selected)['label'];
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Alerts suspended for $label'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () => _resumeAlerts(alert.deviceId),
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _resumeAlerts(int deviceId) async {
+    try {
+      await ApiClient.put(
+        '/devices/$deviceId/suspend',
+        {'duration_minutes': 0},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Alerts resumed')),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _showAlertImage(Alert alert) async {
     if (alert.imagePath == null || alert.imagePath!.isEmpty) return;
 
@@ -214,6 +307,13 @@ class _AlertsScreenState extends State<AlertsScreen> {
                                         icon: const Icon(Icons.image),
                                         onPressed: () =>
                                             _showAlertImage(a),
+                                      ),
+                                    if (!a.acknowledged)
+                                      IconButton(
+                                        icon: const Icon(Icons.snooze),
+                                        tooltip: 'Suspend alerts',
+                                        onPressed: () =>
+                                            _showSuspendDialog(a),
                                       ),
                                     if (!a.acknowledged)
                                       IconButton(

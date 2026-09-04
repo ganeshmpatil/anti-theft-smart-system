@@ -6,6 +6,7 @@ class Device {
   final int? batteryPct;
   final double? cpuTemp;
   final bool monitoringEnabled;
+  final String? suspendedUntil;
   final int? scheduleStartHour;
   final int? scheduleEndHour;
 
@@ -17,9 +18,17 @@ class Device {
     this.batteryPct,
     this.cpuTemp,
     this.monitoringEnabled = false,
+    this.suspendedUntil,
     this.scheduleStartHour,
     this.scheduleEndHour,
   });
+
+  bool get isSuspended {
+    if (suspendedUntil == null) return false;
+    final until = DateTime.tryParse(suspendedUntil!);
+    if (until == null) return false;
+    return until.isAfter(DateTime.now().toUtc());
+  }
 
   factory Device.fromJson(Map<String, dynamic> json) {
     return Device(
@@ -30,6 +39,7 @@ class Device {
       batteryPct: json['battery_pct'] as int?,
       cpuTemp: (json['cpu_temp'] as num?)?.toDouble(),
       monitoringEnabled: json['monitoring_enabled'] as bool? ?? false,
+      suspendedUntil: json['suspended_until'] as String?,
       scheduleStartHour: json['schedule_start_hour'] as int?,
       scheduleEndHour: json['schedule_end_hour'] as int?,
     );
@@ -37,6 +47,8 @@ class Device {
 
   Device copyWith({
     bool? monitoringEnabled,
+    String? suspendedUntil,
+    bool clearSuspension = false,
     int? scheduleStartHour,
     int? scheduleEndHour,
   }) {
@@ -48,6 +60,7 @@ class Device {
       batteryPct: batteryPct,
       cpuTemp: cpuTemp,
       monitoringEnabled: monitoringEnabled ?? this.monitoringEnabled,
+      suspendedUntil: clearSuspension ? null : (suspendedUntil ?? this.suspendedUntil),
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
     );

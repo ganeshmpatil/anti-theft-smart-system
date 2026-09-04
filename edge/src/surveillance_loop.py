@@ -146,6 +146,10 @@ class SurveillanceLoop:
                 if self._commands.snapshot_requested:
                     self._handle_snapshot_request()
 
+                # Handle live feed
+                if self._commands.live_feed_active:
+                    self._handle_live_feed()
+
                 # Scan cycle metrics
                 self._scan_count += 1
                 cycle_time = time.monotonic() - self._cycle_start
@@ -240,6 +244,45 @@ class SurveillanceLoop:
             logger.warning("MQTT offline — tamper alert queued for later delivery")
             self._alerts.queue_raw_payload(payload)
 
+    def _handle_live_feed(self):
+        """Stream JPEG frames via MQTT for the requested duration."""
+        duration = self._commands.live_feed_duration
+        fps = self._commands.live_feed_fps
+        camera_id = self._commands.live_feed_camera
+        frame_interval = 1.0 / fps
+
+        # Pick the requested camera
+        camera = self._cam1
+        if camera_id == "cam_rear" and self._cam2.is_alive():
+            camera = self._cam2
+        elif not camera.is_alive():
+            logger.error("Live feed camera not available")
+            self._commands.stop_live_feed()
+            return
+
+        logger.info("Live feed started: %ds at %dfps from %s", duration, fps, camera.camera_id)
+        start = time.monotonic()
+
+        while self._commands.live_feed_active and self._running:
+            if time.monotonic() - start >= duration:
+                break
+
+            frame_start = time.monotonic()
+            frame = camera.read_frame()
+            if frame is None:
+                break
+
+            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            self._mqtt.publish_live_frame(buf.tobytes())
+
+            # Throttle to target FPS
+            sleep_time = frame_interval - (time.monotonic() - frame_start)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
+        self._commands.stop_live_feed()
+        logger.info("Live feed ended after %.1fs", time.monotonic() - start)
+
     def _handle_snapshot_request(self):
         """Capture and publish a snapshot on demand."""
         for camera in self._cameras:
@@ -312,7 +355,7 @@ class SurveillanceLoop:
         if not schedule.get("enabled", False):
             return True  # no schedule = always active
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         start_hour = schedule.get("start_hour", 0)
         end_hour = schedule.get("end_hour", 24)
 

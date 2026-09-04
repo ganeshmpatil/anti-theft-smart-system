@@ -7,13 +7,17 @@ logger = logging.getLogger(__name__)
 
 
 class CommandHandler:
-    """Processes arm/disarm/snapshot/reboot commands."""
+    """Processes arm/disarm/snapshot/reboot/live_feed commands."""
 
     def __init__(self):
         self._armed = threading.Event()
         self._armed.set()  # armed by default
         self._snapshot_requested = threading.Event()
         self._reboot_requested = threading.Event()
+        self._live_feed_active = threading.Event()
+        self._live_feed_duration = 30  # seconds
+        self._live_feed_fps = 3
+        self._live_feed_camera = "cam_front"
         self._lock = threading.Lock()
 
     def handle(self, action: str, params: dict):
@@ -41,6 +45,18 @@ class CommandHandler:
             self._reboot_requested.set()
             logger.warning("Reboot requested")
 
+        elif action == "live_feed_start":
+            self._live_feed_duration = params.get("duration", 30)
+            self._live_feed_fps = params.get("fps", 3)
+            self._live_feed_camera = params.get("camera_id", "cam_front")
+            self._live_feed_active.set()
+            logger.info("Live feed requested: %ds at %dfps from %s",
+                        self._live_feed_duration, self._live_feed_fps, self._live_feed_camera)
+
+        elif action == "live_feed_stop":
+            self._live_feed_active.clear()
+            logger.info("Live feed stopped by command")
+
         elif action == "config_update":
             logger.info("Config update received")
 
@@ -67,6 +83,25 @@ class CommandHandler:
     @property
     def reboot_requested(self) -> bool:
         return self._reboot_requested.is_set()
+
+    @property
+    def live_feed_active(self) -> bool:
+        return self._live_feed_active.is_set()
+
+    @property
+    def live_feed_duration(self) -> int:
+        return self._live_feed_duration
+
+    @property
+    def live_feed_fps(self) -> int:
+        return self._live_feed_fps
+
+    @property
+    def live_feed_camera(self) -> str:
+        return self._live_feed_camera
+
+    def stop_live_feed(self):
+        self._live_feed_active.clear()
 
     def wait_for_arm(self, timeout: float = None) -> bool:
         """Block until the system is armed. Returns True if armed."""

@@ -74,6 +74,7 @@ class DeviceLinkResponse(BaseModel):
     device_uid: str
     status: str
     monitoring_enabled: bool
+    suspended_until: Optional[datetime] = None
     schedule_start_hour: Optional[int] = None
     schedule_end_hour: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -89,6 +90,7 @@ class DeviceResponse(BaseModel):
     signal_dbm: int
     firmware_version: str
     monitoring_enabled: Optional[bool] = None
+    suspended_until: Optional[datetime] = None
     schedule_start_hour: Optional[int] = None
     schedule_end_hour: Optional[int] = None
     created_at: datetime
@@ -102,6 +104,9 @@ class MonitoringSchedule(BaseModel):
 
 class AdHocToggle(BaseModel):
     monitoring_enabled: bool
+
+class SuspendRequest(BaseModel):
+    duration_minutes: int = Field(..., ge=0, le=1440)  # 0 = resume, max 24 hours
 
 # Keep old schema for backwards compatibility
 class DeviceRegister(BaseModel):

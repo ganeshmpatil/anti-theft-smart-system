@@ -1,5 +1,7 @@
 """Device management endpoints — link/unlink, schedule, monitoring toggle."""
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -7,7 +9,7 @@ from app.db.session import get_db
 from app.models.database import Device, DeviceFarmer, Farm, User
 from app.models.schemas import (
     AdHocToggle, DeviceLinkRequest, DeviceLinkResponse, DeviceResponse,
-    FarmCreate, FarmResponse, MonitoringSchedule,
+    FarmCreate, FarmResponse, MonitoringSchedule, SuspendRequest,
 )
 from app.api.deps import get_current_user
 
@@ -124,6 +126,7 @@ def list_devices(user: User = Depends(get_current_user), db: Session = Depends(g
             signal_dbm=device.signal_dbm,
             firmware_version=device.firmware_version,
             monitoring_enabled=link.monitoring_enabled if link else None,
+            suspended_until=link.suspended_until if link else None,
             schedule_start_hour=link.schedule_start_hour if link else None,
             schedule_end_hour=link.schedule_end_hour if link else None,
             created_at=device.created_at,
@@ -160,6 +163,7 @@ def get_device(
         signal_dbm=device.signal_dbm,
         firmware_version=device.firmware_version,
         monitoring_enabled=link.monitoring_enabled,
+        suspended_until=link.suspended_until,
         schedule_start_hour=link.schedule_start_hour,
         schedule_end_hour=link.schedule_end_hour,
         created_at=device.created_at,
@@ -198,6 +202,7 @@ def set_monitoring_schedule(
         device_uid=device.device_uid,
         status=device.status,
         monitoring_enabled=link.monitoring_enabled,
+        suspended_until=link.suspended_until,
         schedule_start_hour=link.schedule_start_hour,
         schedule_end_hour=link.schedule_end_hour,
         created_at=link.created_at,
@@ -221,6 +226,8 @@ def toggle_monitoring(
         raise HTTPException(status_code=404, detail="Device link not found")
 
     link.monitoring_enabled = body.monitoring_enabled
+    if body.monitoring_enabled:
+        link.suspended_until = None
     db.commit()
     db.refresh(link)
 
@@ -232,6 +239,49 @@ def toggle_monitoring(
         device_uid=device.device_uid,
         status=device.status,
         monitoring_enabled=link.monitoring_enabled,
+        suspended_until=link.suspended_until,
+        schedule_start_hour=link.schedule_start_hour,
+        schedule_end_hour=link.schedule_end_hour,
+        created_at=link.created_at,
+    )
+
+
+@router.put("/devices/{device_id}/suspend", response_model=DeviceLinkResponse)
+def suspend_monitoring(
+    device_id: int,
+    body: SuspendRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Suspend alerts for a device for a specified duration.
+
+    duration_minutes=0 means resume immediately (clear suspension).
+    """
+    link = (
+        db.query(DeviceFarmer)
+        .filter(DeviceFarmer.device_id == device_id, DeviceFarmer.user_id == user.id)
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Device link not found")
+
+    if body.duration_minutes == 0:
+        link.suspended_until = None
+    else:
+        link.suspended_until = datetime.now(timezone.utc) + timedelta(minutes=body.duration_minutes)
+
+    db.commit()
+    db.refresh(link)
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+
+    return DeviceLinkResponse(
+        id=link.id,
+        device_id=device.id,
+        device_uid=device.device_uid,
+        status=device.status,
+        monitoring_enabled=link.monitoring_enabled,
+        suspended_until=link.suspended_until,
         schedule_start_hour=link.schedule_start_hour,
         schedule_end_hour=link.schedule_end_hour,
         created_at=link.created_at,

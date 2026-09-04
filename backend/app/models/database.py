@@ -82,6 +82,7 @@ class DeviceFarmer(Base):
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     monitoring_enabled = Column(Boolean, default=True)
+    suspended_until = Column(DateTime(timezone=True), nullable=True)
     schedule_start_hour = Column(Integer, nullable=True)
     schedule_end_hour = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)

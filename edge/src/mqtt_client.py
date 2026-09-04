@@ -107,6 +107,18 @@ class MQTTClient:
         except Exception:
             return False
 
+    def publish_live_frame(self, frame_jpeg: bytes) -> bool:
+        """Publish a live feed frame (QoS 0 — speed over reliability)."""
+        try:
+            self._client.publish(
+                f"{self._topic_prefix}/live_frame",
+                payload=frame_jpeg,
+                qos=0,
+            )
+            return True
+        except Exception:
+            return False
+
     def publish_status(self, status: str) -> bool:
         """Publish device status (retained message)."""
         try:

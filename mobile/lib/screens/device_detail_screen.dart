@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/device.dart';
 import '../services/api_client.dart';
+import 'live_feed_screen.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -332,6 +333,33 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     _sendingCommand ? null : () => _sendCommand('reboot'),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+
+          // Live Feed
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _device.isOnline
+                  ? () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LiveFeedScreen(
+                            deviceId: _device.id,
+                            deviceUid: _device.deviceUid,
+                          ),
+                        ),
+                      );
+                    }
+                  : null,
+              icon: const Icon(Icons.videocam),
+              label: const Text('Live Camera Feed'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.teal,
+              ),
+            ),
           ),
 
           if (_sendingCommand) ...[

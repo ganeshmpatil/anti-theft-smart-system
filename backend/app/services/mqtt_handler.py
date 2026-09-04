@@ -37,6 +37,9 @@ class MQTTHandler:
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._running = False
+        # Live feed: device_uid -> list of asyncio.Queue
+        self._live_subscribers: dict[str, list] = {}
+        self._live_lock = threading.Lock()
 
         if settings.mqtt_username:
             self._client.username_pw_set(settings.mqtt_username, settings.mqtt_password)
@@ -94,6 +97,7 @@ class MQTTHandler:
             client.subscribe("farm/+/device/+/image", qos=1)
             client.subscribe("farm/+/device/+/heartbeat", qos=0)
             client.subscribe("farm/+/device/+/status", qos=1)
+            client.subscribe("farm/+/device/+/live_frame", qos=0)
         else:
             logger.error("MQTT handler connection failed (rc=%s)", rc)
 
@@ -118,6 +122,8 @@ class MQTTHandler:
                 self._handle_heartbeat(device_uid, msg.payload)
             elif msg_type == "status":
                 self._handle_status(device_uid, msg.payload)
+            elif msg_type == "live_frame":
+                self._handle_live_frame(device_uid, msg.payload)
 
         except Exception:
             logger.exception("Error processing MQTT message on %s", msg.topic)
@@ -267,10 +273,15 @@ class MQTTHandler:
                     f"confidence: {confidence:.0%})")
 
         # Find all linked farmers and notify each one
+        now = datetime.now(timezone.utc)
         links = db.query(DeviceFarmer).filter(DeviceFarmer.device_id == device.id).all()
         for link in links:
             # Only notify if monitoring is enabled for this farmer-device link
             if not link.monitoring_enabled:
+                continue
+            # Skip if alerts are suspended
+            if link.suspended_until and link.suspended_until > now:
+                logger.info("Skipping notification for user %d — suspended until %s", link.user_id, link.suspended_until)
                 continue
             farmer = db.query(User).filter(User.id == link.user_id).first()
             if not farmer or not farmer.fcm_token:
@@ -282,6 +293,53 @@ class MQTTHandler:
                 body=body,
                 data={"alert_id": str(alert.id), "device_uid": device.device_uid},
             )
+
+    # --- Live feed subscriber management ---
+
+    def subscribe_live_feed(self, device_uid: str):
+        """Create an asyncio.Queue for a new WebSocket subscriber. Returns the queue."""
+        import asyncio
+        queue = asyncio.Queue(maxsize=10)
+        with self._live_lock:
+            if device_uid not in self._live_subscribers:
+                self._live_subscribers[device_uid] = []
+            self._live_subscribers[device_uid].append(queue)
+        logger.info("Live feed subscriber added for %s (total=%d)",
+                     device_uid, len(self._live_subscribers[device_uid]))
+        return queue
+
+    def unsubscribe_live_feed(self, device_uid: str, queue):
+        """Remove a subscriber queue."""
+        with self._live_lock:
+            if device_uid in self._live_subscribers:
+                try:
+                    self._live_subscribers[device_uid].remove(queue)
+                except ValueError:
+                    pass
+                if not self._live_subscribers[device_uid]:
+                    del self._live_subscribers[device_uid]
+        logger.info("Live feed subscriber removed for %s", device_uid)
+
+    def _handle_live_frame(self, device_uid: str, payload: bytes):
+        """Push live frame to all WebSocket subscribers for this device."""
+        with self._live_lock:
+            subscribers = self._live_subscribers.get(device_uid, [])
+            if not subscribers:
+                return
+            dead = []
+            for queue in subscribers:
+                try:
+                    queue.put_nowait(payload)
+                except Exception:
+                    # Queue full or closed — mark for removal
+                    dead.append(queue)
+            for q in dead:
+                try:
+                    subscribers.remove(q)
+                except ValueError:
+                    pass
+            if not subscribers:
+                del self._live_subscribers[device_uid]
 
     def _notify_device_offline(self, db: Session, device: Device):
         """Notify all linked farmers that a device went offline unexpectedly."""

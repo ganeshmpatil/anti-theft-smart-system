@@ -20,6 +20,7 @@
 - [16. Performance Budgets](#16-performance-budgets)
 - [17. Technology Decisions](#17-technology-decisions)
 - [18. Testing and Simulation Strategy](#18-testing-and-simulation-strategy)
+- [19. End-to-End Testing Steps](#19-end-to-end-testing-steps)
 
 ---
 
@@ -2316,6 +2317,346 @@ The entire system is designed to be fully testable on a developer laptop without
     Code changes between steps: ZERO
     Only device_config.yaml changes.
 ```
+
+---
+
+## 19. End-to-End Testing Steps
+
+Step-by-step instructions to test the full system on a laptop without any hardware.
+
+### 19.1 Prerequisites
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Python | 3.10+ | `sudo apt install python3 python3-pip python3-venv` |
+| Docker + Compose | 24+ | [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) |
+| Flutter | 3.x | [docs.flutter.dev/get-started/install](https://docs.flutter.dev/get-started/install) |
+| Android Emulator | API 33+ | Via Android Studio SDK Manager |
+| Git | 2.x | `sudo apt install git` |
+
+### 19.2 Clone and Setup
+
+```bash
+git clone https://github.com/ganeshmpatil/anti-theft-smart-system.git
+cd anti-theft-smart-system
+```
+
+### 19.3 Step 1 — Start the Backend Stack
+
+```bash
+cd backend
+
+# Create .env from template
+cp .env.example .env
+
+# Start all services: PostgreSQL, Mosquitto, MinIO, FastAPI
+docker-compose up --build -d
+```
+
+Wait for all containers to be healthy:
+
+```bash
+docker-compose ps
+```
+
+Expected output:
+
+```
+NAME                  STATUS
+backend-postgres-1    Up (healthy)
+backend-mosquitto-1   Up (healthy)
+backend-minio-1       Up (healthy)
+backend-backend-1     Up
+```
+
+Verify the backend API is running:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected: `{"status":"ok","mqtt_connected":true}`
+
+### 19.4 Step 2 — Register a User and Setup Farm
+
+```bash
+# Register a new user
+curl -s -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"farmer@test.com","password":"test1234","full_name":"Test Farmer"}' \
+  | python3 -m json.tool
+```
+
+Save the `access_token` from the response:
+
+```bash
+export TOKEN="<paste-access-token-here>"
+```
+
+Create a farm and register a device:
+
+```bash
+# Create farm
+curl -s -X POST http://localhost:8000/api/v1/farms \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"test_farm","location":"Laptop Simulation"}' \
+  | python3 -m json.tool
+
+# Register device (use farm_id from above response)
+curl -s -X POST http://localhost:8000/api/v1/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"device_uid":"sim-cam-01","farm_id":1}' \
+  | python3 -m json.tool
+```
+
+### 19.5 Step 3 — Start the Edge Daemon (Simulation Mode)
+
+```bash
+cd ../edge
+
+# Create virtual environment and install dependencies
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Download the YOLOv5n ONNX model (one-time, ~3.9MB)
+bash download_model.sh
+```
+
+Edit `config/device_config.yaml` — set MQTT to point to local Docker:
+
+```yaml
+mqtt:
+  broker_host: "localhost"    # Docker Mosquitto on host
+  broker_port: 1883
+
+device:
+  farm_id: "test_farm"
+  device_uid: "sim-cam-01"
+```
+
+Run in simulation mode with debug window:
+
+```bash
+python3 src/main.py --mode simulation --debug
+```
+
+Expected behavior:
+- OpenCV debug window opens showing simulated camera feeds
+- Motion detector processes synthetic frames
+- When a person is detected in 3+ consecutive frames, an alert is generated
+- Alert is published via MQTT to the backend
+- Console logs show: `[AlertManager] ALERT SENT — person (conf=0.XX)`
+
+### 19.6 Step 4 — Verify Alert Arrives in Backend
+
+In a new terminal:
+
+```bash
+# List alerts (should show the alert created by the edge daemon)
+curl -s http://localhost:8000/api/v1/alerts \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -m json.tool
+```
+
+Expected: JSON array with at least one alert containing `alert_type`, `confidence`, and `created_at`.
+
+### 19.7 Step 5 — Test Commands (Backend to Edge)
+
+```bash
+# Send arm command (device_id from step 2)
+curl -s -X POST http://localhost:8000/api/v1/commands \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":1,"action":"arm","params":{}}' \
+  | python3 -m json.tool
+
+# Send disarm command
+curl -s -X POST http://localhost:8000/api/v1/commands \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":1,"action":"disarm","params":{}}' \
+  | python3 -m json.tool
+
+# Request a snapshot
+curl -s -X POST http://localhost:8000/api/v1/commands \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":1,"action":"snapshot","params":{}}' \
+  | python3 -m json.tool
+```
+
+Watch the edge daemon terminal — it should log command receipt:
+```
+[CommandHandler] Received command: arm
+[CommandHandler] Received command: disarm
+[CommandHandler] Received command: snapshot
+```
+
+### 19.8 Step 6 — Test with Webcam (Optional)
+
+If you have a webcam connected:
+
+```bash
+python3 src/main.py --mode webcam --debug
+```
+
+Walk in front of the laptop camera. Expected:
+- Motion detector triggers on movement
+- YOLO runs inference on motion frames
+- When you are detected as a person, alert is sent after 3 consecutive frames
+- Debug window shows bounding boxes around detected persons
+- Alert appears in backend within ~2-3 seconds
+
+### 19.9 Step 7 — Launch the Mobile App
+
+```bash
+cd ../mobile
+
+# Install dependencies
+flutter pub get
+
+# Start Android emulator (or connect physical device)
+flutter emulators --launch <emulator-id>
+
+# Run the app
+flutter run
+```
+
+In the app:
+1. **Settings tab** — Verify server URL is `http://10.0.2.2:8000/api/v1` (for Android emulator)
+   - For physical device on same WiFi: use your PC's LAN IP (e.g., `http://192.168.1.100:8000/api/v1`)
+2. **Login** — Use the credentials from Step 2 (`farmer@test.com` / `test1234`)
+3. **Dashboard** — Should show device `sim-cam-01` and any alerts from the edge daemon
+4. **Alerts tab** — View alert list, tap image icon to view detection snapshot
+5. **Devices tab** — Tap device, use Arm/Disarm/Snapshot/Reboot buttons
+
+### 19.10 Step 8 — Acknowledge an Alert from Mobile
+
+1. Go to **Alerts tab** in the app
+2. Unacknowledged alerts are highlighted in red
+3. Tap the checkmark icon to acknowledge
+4. Verify via API:
+
+```bash
+curl -s http://localhost:8000/api/v1/alerts \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -m json.tool
+# "acknowledged": true
+```
+
+### 19.11 Step 9 — Test Device Settings
+
+```bash
+# Get current device settings
+curl -s http://localhost:8000/api/v1/settings/1 \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -m json.tool
+
+# Update confidence threshold and cooldown
+curl -s -X PUT http://localhost:8000/api/v1/settings/1 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"confidence_threshold":0.7,"cooldown_seconds":120}' \
+  | python3 -m json.tool
+```
+
+The edge daemon receives the config update via MQTT and applies it in real-time.
+
+### 19.12 Step 10 — Test Health and Heartbeat
+
+```bash
+# Check backend health
+curl -s http://localhost:8000/health | python3 -m json.tool
+```
+
+While the edge daemon is running, it sends heartbeats every 30 seconds. Verify the device shows as online:
+
+```bash
+curl -s http://localhost:8000/api/v1/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -m json.tool
+# "is_online": true
+```
+
+Stop the edge daemon (Ctrl+C) and wait 2 minutes. The device should go offline:
+
+```bash
+curl -s http://localhost:8000/api/v1/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -m json.tool
+# "is_online": false
+```
+
+### 19.13 Verification Checklist
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                    END-TO-END TEST CHECKLIST                         │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  BACKEND                                                             │
+│  [ ] Docker Compose starts all 4 services (postgres, mqtt, minio,   │
+│      backend)                                                        │
+│  [ ] /health returns {"status":"ok","mqtt_connected":true}           │
+│  [ ] User registration returns JWT token                             │
+│  [ ] User login returns JWT token                                    │
+│  [ ] Farm creation succeeds                                          │
+│  [ ] Device registration succeeds                                    │
+│                                                                      │
+│  EDGE DAEMON                                                         │
+│  [ ] Starts in simulation mode without errors                        │
+│  [ ] Debug window shows camera feed                                  │
+│  [ ] Motion detector triggers on synthetic frames                    │
+│  [ ] YOLO inference runs and detects persons                         │
+│  [ ] Alert published to MQTT after 3 consecutive detections          │
+│  [ ] Heartbeats sent every 30 seconds                                │
+│  [ ] Responds to arm/disarm/snapshot commands                        │
+│  [ ] Keyboard controls work (Q=quit, D=disarm, T=tamper)             │
+│                                                                      │
+│  BACKEND ← EDGE INTEGRATION                                         │
+│  [ ] Alert appears in GET /alerts after edge sends one               │
+│  [ ] Alert image stored in MinIO and accessible via presigned URL    │
+│  [ ] Device shows is_online=true while daemon is running             │
+│  [ ] Device shows is_online=false after daemon stops                 │
+│  [ ] Commands sent via API reach the edge daemon                     │
+│  [ ] Settings update via API reaches edge daemon                     │
+│                                                                      │
+│  MOBILE APP                                                          │
+│  [ ] App builds and launches on emulator                             │
+│  [ ] Login with registered credentials succeeds                      │
+│  [ ] Dashboard shows device list and alert count                     │
+│  [ ] Alerts screen lists alerts with correct data                    │
+│  [ ] Alert image viewer loads detection snapshot                     │
+│  [ ] Acknowledge alert updates status                                │
+│  [ ] Device detail screen loads                                      │
+│  [ ] Arm/Disarm/Snapshot/Reboot commands reach edge                  │
+│  [ ] Settings screen allows server URL change                        │
+│                                                                      │
+│  FULL ROUND-TRIP                                                     │
+│  [ ] Person detected on edge → alert in backend → visible in app    │
+│  [ ] Command sent from app → backend → edge daemon acts on it       │
+│  [ ] Config change from app → backend → edge applies new settings   │
+│                                                                      │
+│  Estimated time to complete all steps: 15-20 minutes                 │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 19.14 Troubleshooting
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| `docker-compose up` fails on port 5432 | Local PostgreSQL running | `sudo systemctl stop postgresql` or change port in docker-compose.yml |
+| Backend returns 500 on startup | Missing `.env` file | `cp .env.example .env` |
+| Edge daemon can't connect to MQTT | Mosquitto not running or wrong host | Check `docker-compose ps` and set `broker_host: "localhost"` |
+| Mobile app "Connection failed" | Wrong server URL | Android emulator: `http://10.0.2.2:8000/api/v1`. Physical device: use PC's LAN IP |
+| YOLO model not found | Model not downloaded | Run `bash download_model.sh` in edge/ |
+| No alerts appearing | Edge daemon not armed | Check daemon logs; send `arm` command |
+| MinIO presigned URL fails | MinIO not healthy | Check `docker-compose ps`; ensure bucket `farm-alerts` exists |
+| `flutter run` fails | Missing Android SDK | Run `flutter doctor` and install missing components |
 
 ---
 

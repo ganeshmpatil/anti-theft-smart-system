@@ -1,0 +1,31 @@
+[Unit]
+Description=Anti-Theft Smart System Surveillance Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/surveillance
+ExecStart=/opt/surveillance/venv/bin/python -m src.main --config config/device_config.yaml
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Watchdog: daemon must call sd_notify within 60s or systemd restarts it
+WatchdogSec=60
+
+# OOM protection
+OOMPolicy=kill
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=atss
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,66 @@
+# Anti-Theft Smart System — Edge Device Configuration
+# Change 'mode' to switch between simulation and production.
+# NO code changes required.
+
+mode: "simulation"  # "simulation" | "webcam" | "production"
+
+device:
+  device_id: "FARM-SIM-001"
+  farm_id: "farm_test_laptop"
+
+camera:
+  simulation:
+    cam1_source: "test_videos/intrusion/person_walk_day.mp4"
+    cam2_source: "test_videos/false_positives/empty_field_day.mp4"
+    loop_video: true
+    playback_speed: 1.0
+  webcam:
+    cam1_source: 0          # /dev/video0 (laptop webcam)
+    cam2_source: 0          # same webcam, split into two halves
+    split_mode: true
+  production:
+    cam1_source: "/dev/video0"
+    cam2_source: "/dev/video2"
+
+mqtt:
+  broker: "localhost"
+  port: 1883
+  username: ""
+  password: ""
+  tls_enabled: false
+  ca_cert: ""
+  client_cert: ""
+  client_key: ""
+
+detection:
+  model_path: "models/yolov5n.onnx"
+  confidence_threshold: 0.6
+  nms_threshold: 0.45
+  temporal_frames: 3
+  cooldown_seconds: 300
+  min_motion_area: 3000
+
+schedule:
+  enabled: false
+  # Uncomment to restrict surveillance to specific hours:
+  # enabled: true
+  # start_hour: 19    # 7 PM
+  # end_hour: 6       # 6 AM (wraps midnight)
+
+exclusion_zones: {}
+  # Example:
+  # cam_front:
+  #   - { x: 100, y: 200, w: 80, h: 120, label: "scarecrow" }
+  #   - { x: 400, y: 50, w: 100, h: 80, label: "clothesline" }
+
+gpio:
+  tamper_pin: 17
+  mains_detect_pin: 27
+
+simulation:
+  mock_battery_pct: 72
+  mock_power_source: "mains"
+  mock_cpu_temp: 55.0
+  mock_signal_dbm: -67
+  enable_debug_window: true
+  save_detection_frames: false

@@ -5,8 +5,8 @@
 mode: "simulation"  # "simulation" | "webcam" | "production"
 
 device:
-  device_id: "FARM-SIM-001"
-  farm_id: "farm_test_laptop"
+  device_id: "sim-cam-01"
+  farm_id: "test_farm"
 
 camera:
   simulation:
@@ -62,5 +62,5 @@ simulation:
   mock_power_source: "mains"
   mock_cpu_temp: 55.0
   mock_signal_dbm: -67
-  enable_debug_window: true
+  enable_debug_window: false
   save_detection_frames: false

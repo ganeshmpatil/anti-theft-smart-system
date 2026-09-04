@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     logger.info("MinIO storage ready.")
 
     # Start MQTT handler
-    mqtt = MQTTHandler()
+    mqtt = MQTTHandler(storage)
     mqtt.start()
     app.state.mqtt_handler = mqtt
     commands.set_mqtt_handler(mqtt)

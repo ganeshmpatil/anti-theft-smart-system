@@ -52,13 +52,13 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://farm_user:farm_pass@postgres:5432/farm_surveillance
-      MQTT_BROKER_HOST: mosquitto
-      MQTT_BROKER_PORT: 1883
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: farm-alerts
-      MINIO_USE_SSL: "false"
+      MINIO_SECURE: "false"
     depends_on:
       postgres:
         condition: service_healthy

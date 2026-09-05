@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 18mm 20mm 18mm;
+    @bottom-center {
+      content: "ATSS Shopping List — Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; font-size: 10pt; line-height: 1.5; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #fff;
+    padding: 25px 30px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  .header h1 { font-size: 20pt; margin-bottom: 4px; letter-spacing: 0.5px; }
+  .header .subtitle { font-size: 10pt; color: #aaa; }
+  .header .purpose {
+    margin-top: 10px; padding: 8px 12px;
+    background: rgba(233,69,96,0.15); border-left: 3px solid #e94560;
+    border-radius: 4px; font-size: 9pt; color: #ddd;
+  }
+
+  h2 {
+    font-size: 13pt; color: #1a1a2e; margin: 20px 0 10px;
+    padding-bottom: 4px; border-bottom: 2px solid #e94560;
+  }
+  h3 { font-size: 11pt; color: #e94560; margin: 14px 0 6px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9.5pt; }
+  th {
+    background: #1a1a2e; color: #fff; padding: 8px 10px;
+    text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  td { padding: 7px 10px; border-bottom: 1px solid #ddd; }
+  tr:nth-child(even) { background: #f8f8fa; }
+  .cost { text-align: right; font-weight: 700; color: #1a8a4a; }
+  .total-row td { background: #1a1a2e; color: #fff; font-weight: 700; font-size: 11pt; }
+  .total-row .cost { color: #4ae68a; }
+  .skip-row td { color: #999; text-decoration: line-through; }
+  .check { width: 18px; text-align: center; }
+  .checkbox { display: inline-block; width: 13px; height: 13px; border: 1.5px solid #555; border-radius: 2px; }
+
+  /* Callout boxes */
+  .callout {
+    padding: 10px 14px; border-radius: 6px; margin: 10px 0; font-size: 9pt;
+  }
+  .callout-warn { background: #fff8e1; border-left: 3px solid #f9a825; }
+  .callout-info { background: #e8f4fd; border-left: 3px solid #2196f3; }
+  .callout-success { background: #e8f5e9; border-left: 3px solid #4caf50; }
+  .callout-title { font-weight: 700; margin-bottom: 3px; }
+
+  /* Setup diagram */
+  .diagram {
+    background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px;
+    padding: 15px 20px; margin: 12px 0; font-family: 'Courier New', monospace;
+    font-size: 8.5pt; line-height: 1.6; white-space: pre; color: #333;
+  }
+
+  /* Steps */
+  .step-grid { margin: 8px 0; }
+  .step {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-bottom: 6px; padding: 6px 10px;
+    background: #f8f8fa; border-radius: 4px;
+  }
+  .step-num {
+    background: #e94560; color: #fff; width: 20px; height: 20px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 8pt; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+  }
+  .step-text { font-size: 9pt; }
+  .step-text code { background: #e8e8ee; padding: 1px 4px; border-radius: 3px; font-size: 8.5pt; }
+
+  /* Day plan */
+  .day-card {
+    border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px;
+    margin-bottom: 12px; page-break-inside: avoid;
+  }
+  .day-title {
+    font-size: 11pt; font-weight: 700; color: #1a1a2e;
+    margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #eee;
+  }
+  .cmd { font-family: 'Courier New', monospace; font-size: 8.5pt; background: #1a1a2e; color: #4ae68a; padding: 8px 12px; border-radius: 4px; margin: 6px 0; white-space: pre-wrap; word-break: break-all; }
+
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    padding: 4px 0 4px 24px; position: relative; font-size: 9pt;
+  }
+  .checklist li::before {
+    content: ''; position: absolute; left: 0; top: 6px;
+    width: 13px; height: 13px; border: 1.5px solid #555; border-radius: 2px;
+  }
+
+  .page-break { page-break-before: always; }
+
+  /* Search tips */
+  .search-term {
+    display: inline-block; background: #fff3e0; border: 1px solid #ffcc02;
+    padding: 2px 8px; border-radius: 4px; font-size: 9pt; font-weight: 600;
+    margin: 2px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>ATSS — Home Test Shopping List</h1>
+  <div class="subtitle">Anti-Theft Smart System | Minimum Hardware for End-to-End Testing</div>
+  <div class="purpose">
+    <div class="callout-title">Goal</div>
+    Test the full pipeline at home (camera detection + alerts on phone) before investing in outdoor hardware.
+    Everything else runs on your existing laptop, phone, and home WiFi.
+  </div>
+</div>
+
+<!-- SHOPPING LIST -->
+<h2>1. What to Buy</h2>
+
+<table>
+  <tr>
+    <th class="check"></th>
+    <th>#</th>
+    <th>Item</th>
+    <th>Exact Specification</th>
+    <th style="text-align:right;">Est. Cost</th>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td>1</td>
+    <td><strong>Orange Pi Zero 3</strong></td>
+    <td>2GB RAM variant, Allwinner H618, USB-C power input</td>
+    <td class="cost">2,500 - 3,500</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td>2</td>
+    <td><strong>MicroSD Card</strong></td>
+    <td>SanDisk / Samsung, 32GB, Class 10, A1 rated</td>
+    <td class="cost">250</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td>3</td>
+    <td><strong>USB Webcam</strong></td>
+    <td>Any UVC-compliant USB camera (see camera options below)</td>
+    <td class="cost">400 - 1,800</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td>4</td>
+    <td><strong>Micro-HDMI to HDMI</strong></td>
+    <td>Cable or adapter. Needed for first boot display output on Orange Pi.</td>
+    <td class="cost">150</td>
+  </tr>
+  <tr class="total-row">
+    <td></td>
+    <td></td>
+    <td><strong>TOTAL</strong></td>
+    <td></td>
+    <td class="cost">~ 3,400 - 4,500</td>
+  </tr>
+</table>
+
+<div class="callout callout-info">
+  <div class="callout-title">Amazon / Online Search Terms</div>
+  <span class="search-term">Orange Pi Zero 3 2GB</span><br><br>
+  <div style="font-weight:400;">
+    <strong>Where to buy (check prices — they vary):</strong><br>
+    &bull; <strong>Amazon.in</strong> — search "Orange Pi Zero 3 2GB" (price hidden, add to cart to see)<br>
+    &bull; <strong>Probots.co.in</strong> — Indian SBC retailer, 1-3 day shipping<br>
+    &bull; <strong>Zbotic.in</strong> — stocks Orange Pi boards<br>
+    &bull; <strong>CrazyPi.com</strong> — Indian Orange Pi dealer<br>
+    &bull; <strong>AliExpress</strong> — cheapest (~$20) but 7-15 day shipping from China
+  </div>
+  <span class="search-term">SanDisk 32GB MicroSD A1</span>
+  <span class="search-term">USB webcam Linux UVC 720p</span>
+  <span class="search-term">Micro HDMI to HDMI cable</span>
+</div>
+
+<h3>Camera Options — Pick One</h3>
+
+<table>
+  <tr>
+    <th>Option</th>
+    <th>Model</th>
+    <th>Resolution</th>
+    <th>FOV</th>
+    <th>Linux</th>
+    <th style="text-align:right;">Price</th>
+    <th>Best For</th>
+  </tr>
+  <tr style="background:#e8f5e9;">
+    <td><strong>A</strong></td>
+    <td><strong>Zebronics Zeb-Crystal Clear</strong></td>
+    <td>480p @ 30fps</td>
+    <td>~60°</td>
+    <td>USB UVC</td>
+    <td class="cost">~400</td>
+    <td>Cheapest option to validate pipeline</td>
+  </tr>
+  <tr style="background:#e8f5e9;">
+    <td><strong>B</strong></td>
+    <td><strong>Logitech C270 HD</strong></td>
+    <td>720p @ 30fps</td>
+    <td>60°</td>
+    <td>USB UVC</td>
+    <td class="cost">~1,100 - 1,800</td>
+    <td>Best quality for home test (recommended)</td>
+  </tr>
+  <tr>
+    <td>C</td>
+    <td><strong>InnoMaker 720P UVC Camera</strong></td>
+    <td>720p @ 30fps</td>
+    <td>120°</td>
+    <td>USB UVC</td>
+    <td class="cost">~1,200 - 1,800</td>
+    <td>Wide angle, Raspberry Pi compatible, compact module</td>
+  </tr>
+  <tr>
+    <td>D</td>
+    <td><strong>InnoMaker 1080P UVC Camera</strong></td>
+    <td>1080p @ 30fps</td>
+    <td>130°</td>
+    <td>USB UVC</td>
+    <td class="cost">~1,500 - 2,200</td>
+    <td>Best for reuse in final outdoor build</td>
+  </tr>
+  <tr>
+    <td>E</td>
+    <td><strong>Arducam 5MP OV5648</strong></td>
+    <td>720p @ 30fps</td>
+    <td>Wide</td>
+    <td>USB UVC</td>
+    <td class="cost">~1,500 - 2,500</td>
+    <td>High quality sensor, compact bare module</td>
+  </tr>
+  <tr>
+    <td>F</td>
+    <td><strong>ELP 170° Fisheye NoIR USB</strong></td>
+    <td>720p @ 30fps</td>
+    <td>170°</td>
+    <td>USB UVC</td>
+    <td class="cost">~600 - 1,200</td>
+    <td>Final outdoor camera — buy this if you want to reuse later</td>
+  </tr>
+</table>
+
+<div class="callout callout-success">
+  <div class="callout-title">Recommendation</div>
+  <strong>Tight budget?</strong> Buy Option A (Zebronics, ~Rs.400) — cheapest way to validate the full pipeline works on ARM.<br>
+  <strong>Want quality?</strong> Buy Option B (Logitech C270, ~Rs.1,100) — best Linux support, well-tested, 720p.<br>
+  <strong>Want to reuse for farm?</strong> Buy Option F (ELP 170° NoIR) — this is the actual camera for the final build. Wide-angle + no IR filter for night vision later.
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">Amazon.in Search Links</div>
+  <span class="search-term">Zebronics Zeb-Crystal Clear webcam</span>
+  <span class="search-term">Logitech C270 HD webcam</span>
+  <span class="search-term">InnoMaker 720P USB UVC camera</span>
+  <span class="search-term">ELP 170 degree USB camera NoIR</span>
+</div>
+
+<div class="callout callout-warn">
+  <div class="callout-title">Before buying the camera</div>
+  Any USB webcam works for home testing. You do NOT need the special wide-angle NoIR camera yet.
+  Even a Rs.400 basic webcam is fine. The NoIR + wide-angle camera is only needed for outdoor night vision later.
+  Look for "UVC", "Plug and Play", or "No driver needed" in the listing.
+</div>
+
+<!-- WHAT NOT TO BUY -->
+<h2>2. What NOT to Buy (Yet)</h2>
+
+<table>
+  <tr>
+    <th>Item</th>
+    <th>Why Skip for Home Test</th>
+    <th>Buy Later When</th>
+  </tr>
+  <tr class="skip-row">
+    <td>Second camera</td>
+    <td>Test detection accuracy with one first</td>
+    <td>After single-cam works reliably</td>
+  </tr>
+  <tr class="skip-row">
+    <td>4G USB dongle + SIM</td>
+    <td>Home WiFi connects Pi to laptop</td>
+    <td>Before farm deployment</td>
+  </tr>
+  <tr class="skip-row">
+    <td>Powered USB hub</td>
+    <td>One camera + WiFi = Pi handles power fine</td>
+    <td>When adding 2nd camera + 4G dongle</td>
+  </tr>
+  <tr class="skip-row">
+    <td>Power bank (UPS)</td>
+    <td>Home power is stable</td>
+    <td>Before farm deployment</td>
+  </tr>
+  <tr class="skip-row">
+    <td>IR LED ring</td>
+    <td>Test in daylight first</td>
+    <td>Before outdoor night testing</td>
+  </tr>
+  <tr class="skip-row">
+    <td>Tamper sensor (SW-420)</td>
+    <td>Software mock works for testing</td>
+    <td>During final assembly</td>
+  </tr>
+  <tr class="skip-row">
+    <td>Fan, enclosure, pole</td>
+    <td>Not needed for desk testing</td>
+    <td>During final assembly</td>
+  </tr>
+  <tr class="skip-row">
+    <td>Surge protector</td>
+    <td>Home power is stable</td>
+    <td>Before farm deployment</td>
+  </tr>
+</table>
+
+<!-- WHAT YOU ALREADY HAVE -->
+<h2>3. Use What You Already Have</h2>
+
+<table>
+  <tr>
+    <th class="check"></th>
+    <th>Item</th>
+    <th>Purpose in Test Setup</th>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td><strong>Laptop</strong></td>
+    <td>Runs backend server (Docker: Postgres + Mosquitto MQTT + MinIO + FastAPI)</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td><strong>Phone</strong> (Android)</td>
+    <td>Flutter mobile app — receives alerts, controls device</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td><strong>Home WiFi</strong></td>
+    <td>Connects all three devices on the same network</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td><strong>USB keyboard</strong></td>
+    <td>Orange Pi first boot setup (one-time, then use SSH)</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td><strong>TV / Monitor</strong> (HDMI)</td>
+    <td>Orange Pi first boot display (one-time, then use SSH)</td>
+  </tr>
+  <tr>
+    <td class="check"><span class="checkbox"></span></td>
+    <td><strong>USB-C phone charger</strong> (5V/2A+)</td>
+    <td>Powers the Orange Pi (any decent phone charger works)</td>
+  </tr>
+</table>
+
+<!-- HOME TEST ARCHITECTURE -->
+<div class="page-break"></div>
+<h2>4. Home Test Architecture</h2>
+
+<div class="diagram">                         Home WiFi (192.168.x.x)
+                                |
+              +-----------------+-----------------+
+              |                 |                 |
+          LAPTOP            ORANGE PI           PHONE
+     192.168.x.10         192.168.x.20       192.168.x.30
+    +-------------+      +------------+      +----------+
+    | Docker:     |      | Edge       |      | Flutter  |
+    |  Postgres   |&lt;----&gt;| Daemon     |      | App      |
+    |  Mosquitto  | MQTT |            |      |          |
+    |  MinIO      |      | + USB      |      | Receives |
+    |  FastAPI    |&lt;----&gt;| Camera     |&lt;----&gt;| alerts + |
+    |  Backend    | WiFi |            | WiFi | images   |
+    +-------------+      +------------+      +----------+
+
+    Flow: Camera --&gt; Motion Detect --&gt; YOLO --&gt; MQTT Alert --&gt; Backend --&gt; Phone</div>
+
+<!-- DAY BY DAY PLAN -->
+<h2>5. Day-by-Day Setup Plan</h2>
+
+<div class="day-card">
+  <div class="day-title">Day 1 — Orange Pi Setup</div>
+  <div class="step-grid">
+    <div class="step"><div class="step-num">1</div><div class="step-text">Download Armbian Bookworm image for Orange Pi Zero 3 from <strong>armbian.com</strong></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">Flash to MicroSD using <strong>Etcher</strong> (balenaEtcher) on laptop</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">Insert MicroSD, connect micro-HDMI to TV, USB keyboard, and USB-C power</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text">First boot: set root password, create user account</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text">Connect to WiFi: <code>sudo nmtui</code></div></div>
+    <div class="step"><div class="step-num">6</div><div class="step-text">Note IP address: <code>ip addr show wlan0</code></div></div>
+    <div class="step"><div class="step-num">7</div><div class="step-text">SSH from laptop: <code>ssh user@192.168.x.x</code> — disconnect HDMI and keyboard</div></div>
+  </div>
+</div>
+
+<div class="day-card">
+  <div class="day-title">Day 2 — Install Software on Pi</div>
+  <div class="cmd">sudo apt update && sudo apt install -y python3 python3-venv python3-pip git v4l-utils</div>
+  <div class="cmd">git clone &lt;your-repo-url&gt; /opt/atss
+cd /opt/atss/edge
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+bash download_model.sh</div>
+  <div class="callout callout-warn">
+    <div class="callout-title">If onnxruntime fails to install</div>
+    Try: <code>pip install onnxruntime==1.16.3</code><br>
+    If still fails: <code>sudo apt install python3-opencv</code> and try older onnxruntime versions.<br>
+    <strong>This is the #1 blocker</strong> — don't proceed until this works.
+  </div>
+  <div class="step-grid">
+    <div class="step"><div class="step-num">!</div><div class="step-text">Verify: <code>python3 -c "import cv2; import onnxruntime; print('OK')"</code> must print <strong>OK</strong></div></div>
+  </div>
+</div>
+
+<div class="day-card">
+  <div class="day-title">Day 3 — End-to-End Test</div>
+  <h3 style="margin-top:6px;">On Laptop</h3>
+  <div class="cmd">cd anti-theft-smart-system/backend
+docker-compose up -d
+curl http://localhost:8000/health    # should return {"status": "ok"}</div>
+
+  <h3>On Orange Pi</h3>
+  <div class="cmd"># Plug in USB camera, then:
+v4l2-ctl --list-devices
+# Quick test:
+python3 -c "import cv2; c=cv2.VideoCapture(0); print(c.read()[0])"
+# Should print: True</div>
+  <div class="cmd"># Edit config — set MQTT broker to laptop IP:
+cp config/production_config.yaml config/device_config.yaml
+nano config/device_config.yaml
+#   mode: "production"
+#   mqtt.broker: "192.168.x.10"    (your laptop IP)
+#   camera.production.cam1_source: "/dev/video0"
+#   camera.production.cam2_source: "/dev/video0"</div>
+  <div class="cmd"># Run the edge daemon:
+cd /opt/atss/edge && source venv/bin/activate
+python3 -m src.main --config config/device_config.yaml --debug</div>
+
+  <h3>On Phone</h3>
+  <div class="step-grid">
+    <div class="step"><div class="step-num">1</div><div class="step-text">Open Flutter app &gt; Settings &gt; set server URL to <code>http://192.168.x.10:8000</code></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">Register a new account &gt; Login</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">Link device with UID: <code>FARM-001</code></div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text">Walk in front of the camera</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text">Check phone — alert with your snapshot should appear!</div></div>
+  </div>
+</div>
+
+<!-- SUCCESS CRITERIA -->
+<h2>6. It Works When...</h2>
+
+<ul class="checklist">
+  <li>Pi terminal shows: "Motion detected > YOLO inference > person detected > alert published"</li>
+  <li>Laptop Mosquitto logs show: message on <code>farm/farm_1/device/FARM-001/alert</code></li>
+  <li>Phone app shows: new alert card with snapshot image of you</li>
+  <li>Time from walking in front of camera to alert on phone: under 10 seconds</li>
+  <li>System runs for 1+ hour without crashing or memory issues</li>
+  <li>Arm/disarm from phone app actually starts/stops detection on Pi</li>
+</ul>
+
+<!-- COST COMPARISON -->
+<div class="page-break"></div>
+<h2>7. Cost Comparison</h2>
+
+<table>
+  <tr>
+    <th></th>
+    <th style="text-align:right;">Home Test (Now)</th>
+    <th style="text-align:right;">Full Farm Build (Later)</th>
+  </tr>
+  <tr>
+    <td>Orange Pi Zero 3 (2GB)</td>
+    <td class="cost">2,500 - 3,500</td>
+    <td class="cost">2,500 - 3,500</td>
+  </tr>
+  <tr>
+    <td>MicroSD 32GB</td>
+    <td class="cost">250</td>
+    <td class="cost">250</td>
+  </tr>
+  <tr>
+    <td>USB Camera (1x basic / 2x NoIR)</td>
+    <td class="cost">500</td>
+    <td class="cost">1,200</td>
+  </tr>
+  <tr>
+    <td>Micro-HDMI cable</td>
+    <td class="cost">150</td>
+    <td class="cost">150</td>
+  </tr>
+  <tr>
+    <td>IR LED Ring x2</td>
+    <td class="cost">-</td>
+    <td class="cost">400</td>
+  </tr>
+  <tr>
+    <td>4G USB Dongle</td>
+    <td class="cost">-</td>
+    <td class="cost">600</td>
+  </tr>
+  <tr>
+    <td>SIM Card + Plan</td>
+    <td class="cost">-</td>
+    <td class="cost">150/mo</td>
+  </tr>
+  <tr>
+    <td>Powered USB Hub</td>
+    <td class="cost">-</td>
+    <td class="cost">200</td>
+  </tr>
+  <tr>
+    <td>5V/3A Adapter + Surge Protector</td>
+    <td class="cost">-</td>
+    <td class="cost">350</td>
+  </tr>
+  <tr>
+    <td>Power Bank 10000mAh (UPS)</td>
+    <td class="cost">-</td>
+    <td class="cost">500</td>
+  </tr>
+  <tr>
+    <td>Tamper Sensor (SW-420)</td>
+    <td class="cost">-</td>
+    <td class="cost">30</td>
+  </tr>
+  <tr>
+    <td>Fan + Enclosure + Mounting</td>
+    <td class="cost">-</td>
+    <td class="cost">580</td>
+  </tr>
+  <tr>
+    <td>Cables, Glands, Ties</td>
+    <td class="cost">-</td>
+    <td class="cost">350</td>
+  </tr>
+  <tr class="total-row">
+    <td><strong>TOTAL</strong></td>
+    <td class="cost">~ 3,400 - 4,500</td>
+    <td class="cost">~ 7,200 - 8,300</td>
+  </tr>
+</table>
+
+<div class="callout callout-success">
+  <div class="callout-title">Everything you buy now carries forward</div>
+  The Orange Pi, MicroSD, and micro-HDMI cable are reused in the final build.
+  The basic webcam is the only throwaway (~Rs.500) — replaced by NoIR cameras for outdoor use.
+  <strong>You risk only Rs.500 if the project doesn't work out on ARM.</strong>
+</div>
+
+<!-- NOTES -->
+<h2>8. Important Notes</h2>
+
+<div class="callout callout-warn">
+  <div class="callout-title">Orange Pi Zero 3 — Not Raspberry Pi</div>
+  The Orange Pi Zero 3 looks similar but is NOT a Raspberry Pi. It uses a different SoC (Allwinner H618).
+  Do NOT buy Raspberry Pi accessories (cases, hats) — they won't fit.
+  Make sure you get the <strong>Zero 3</strong> model specifically, not Zero, Zero 2, or Zero 3B.
+</div>
+
+<div class="callout callout-warn">
+  <div class="callout-title">MicroSD Quality Matters</div>
+  Buy a genuine SanDisk or Samsung card. Counterfeit cards are common and will corrupt within weeks
+  of 24/7 operation. Buy from Amazon (sold by Appario/Cloudtail) or an authorized retailer.
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">Camera Compatibility Check</div>
+  Before buying, check if the camera says "UVC compatible" or "driverless" or "works with Linux."
+  Any webcam made after 2015 from brands like Logitech, Zebronics, or iBall should work.
+  Avoid cameras that say "Windows only" or require driver installation.
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">Delivery Times</div>
+  Orange Pi Zero 3 may take 5-10 days if ordered from AliExpress.
+  Check Amazon.in or Robu.in for faster delivery (2-3 days).
+  MicroSD and webcam are available at any local electronics shop — buy same day.
+</div>
+
+</body>
+</html>

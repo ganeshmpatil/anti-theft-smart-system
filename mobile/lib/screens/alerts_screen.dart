@@ -1,6 +1,10 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
 import '../models/alert.dart';
 import '../services/api_client.dart';
 
@@ -279,6 +283,26 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
+  Future<void> _showAlertVideo(Alert alert) async {
+    if (!alert.hasVideo) return;
+
+    final token = await ApiClient.getToken();
+    final url =
+        '${ApiClient.baseUrl.replaceFirst('/api/v1', '')}/api/v1/alerts/${alert.id}/video';
+
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _VideoPlayerScreen(
+          alertId: alert.id,
+          videoUrl: url,
+          authToken: token,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -358,8 +382,17 @@ class _AlertsScreenState extends State<AlertsScreen> {
                                         a.imagePath!.isNotEmpty)
                                       IconButton(
                                         icon: const Icon(Icons.image),
+                                        tooltip: 'View snapshot',
                                         onPressed: () =>
                                             _showAlertImage(a),
+                                      ),
+                                    if (a.hasVideo)
+                                      IconButton(
+                                        icon: const Icon(
+                                            Icons.play_circle_outline),
+                                        tooltip: 'Play video clip',
+                                        onPressed: () =>
+                                            _showAlertVideo(a),
                                       ),
                                     if (!a.acknowledged)
                                       IconButton(
@@ -381,6 +414,120 @@ class _AlertsScreenState extends State<AlertsScreen> {
                             );
                           },
                         ),
+                ),
+    );
+  }
+}
+
+class _VideoPlayerScreen extends StatefulWidget {
+  final int alertId;
+  final String videoUrl;
+  final String? authToken;
+
+  const _VideoPlayerScreen({
+    required this.alertId,
+    required this.videoUrl,
+    this.authToken,
+  });
+
+  @override
+  State<_VideoPlayerScreen> createState() => _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState extends State<_VideoPlayerScreen> {
+  VideoPlayerController? _videoController;
+  ChewieController? _chewieController;
+  bool _loading = true;
+  String? _error;
+  File? _tempFile;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVideo();
+  }
+
+  Future<void> _loadVideo() async {
+    try {
+      // Download video bytes with auth header
+      final response = await http.get(
+        Uri.parse(widget.videoUrl),
+        headers: {
+          if (widget.authToken != null)
+            'Authorization': 'Bearer ${widget.authToken}',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        setState(() {
+          _error = 'Failed to load video (${response.statusCode})';
+          _loading = false;
+        });
+        return;
+      }
+
+      // Write to temp file (video_player needs a file or network URL)
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/alert_${widget.alertId}.mp4');
+      await file.writeAsBytes(response.bodyBytes);
+      _tempFile = file;
+
+      final controller = VideoPlayerController.file(file);
+      await controller.initialize();
+
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+
+      _videoController = controller;
+      _chewieController = ChewieController(
+        videoPlayerController: controller,
+        autoPlay: true,
+        looping: false,
+        showControlsOnInitialize: true,
+        aspectRatio: controller.value.aspectRatio,
+      );
+
+      setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to load video: $e';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _chewieController?.dispose();
+    _videoController?.dispose();
+    _tempFile?.delete().catchError((_) => _tempFile!);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Alert #${widget.alertId} — Video')),
+      backgroundColor: Colors.black,
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : Center(
+                  child: Chewie(controller: _chewieController!),
                 ),
     );
   }

@@ -25,6 +25,8 @@ dependencies:
   path_provider: ^2.1.4
   dio: ^5.7.0
   open_filex: ^4.5.0
+  video_player: ^2.9.3
+  chewie: ^1.8.5
 
 dev_dependencies:
   flutter_test:

@@ -103,7 +103,9 @@ app.include_router(live_feed.router)
 @app.get("/health")
 def health_check():
     mqtt: MQTTHandler = getattr(app.state, "mqtt_handler", None)
+    storage: StorageService = getattr(app.state, "storage", None)
     return {
         "status": "ok",
         "mqtt_connected": mqtt.is_connected if mqtt else False,
+        "storage_enabled": storage is not None,
     }

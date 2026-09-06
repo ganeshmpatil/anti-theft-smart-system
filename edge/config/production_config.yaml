@@ -13,12 +13,12 @@ camera:
     cam2_source: "/dev/video2"   # Rear camera (optional — comment out for single cam)
 
 mqtt:
-  broker: "YOUR_VPS_IP"         # Replace with your server IP or domain
+  broker: "w1196cd6.ala.asia-southeast1.emqxsl.com"  # EMQX Cloud
   port: 8883                     # TLS port
-  username: "FARM-001"           # From mosquitto/credentials/FARM-001.env
-  password: "CHANGE_ME"          # From mosquitto/credentials/FARM-001.env
+  username: "FARM-001"           # Create per-device credential in EMQX dashboard
+  password: "CHANGE_ME"          # Create per-device credential in EMQX dashboard
   tls_enabled: true
-  ca_cert: "/opt/surveillance/certs/ca.crt"   # Copy from server
+  ca_cert: ""                    # EMQX Cloud uses DigiCert — system CA works
   client_cert: ""
   client_key: ""
 

@@ -45,25 +45,36 @@ async def lifespan(app: FastAPI):
     # Initialize Firebase for push notifications
     init_firebase()
 
-    # Ensure MinIO bucket exists
-    storage = StorageService()
-    storage.ensure_bucket()
-    app.state.storage = storage
-    logger.info("MinIO storage ready.")
+    # Ensure MinIO bucket exists (skip if endpoint not configured)
+    storage = None
+    if settings.minio_endpoint:
+        try:
+            storage = StorageService()
+            storage.ensure_bucket()
+            app.state.storage = storage
+            logger.info("MinIO storage ready.")
+        except Exception:
+            logger.warning("MinIO unavailable — image storage disabled.")
 
-    # Start MQTT handler
-    mqtt = MQTTHandler(storage)
-    mqtt.start()
-    app.state.mqtt_handler = mqtt
-    commands.set_mqtt_handler(mqtt)
-    live_feed.set_mqtt_handler(mqtt)
-    logger.info("MQTT handler started.")
+    # Start MQTT handler (skip if broker not configured)
+    mqtt = None
+    if settings.mqtt_broker:
+        try:
+            mqtt = MQTTHandler(storage)
+            mqtt.start()
+            app.state.mqtt_handler = mqtt
+            commands.set_mqtt_handler(mqtt)
+            live_feed.set_mqtt_handler(mqtt)
+            logger.info("MQTT handler started.")
+        except Exception:
+            logger.warning("MQTT broker unavailable — real-time features disabled.")
 
     yield
 
     # --- Shutdown ---
     logger.info("Shutting down...")
-    mqtt.stop()
+    if mqtt:
+        mqtt.stop()
 
 
 app = FastAPI(

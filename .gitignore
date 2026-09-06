@@ -66,3 +66,4 @@ docker-compose.override.yml
 !certs/.gitkeep
 backend/certs/*.key
 backend/certs/*.crt
+.wrangler/

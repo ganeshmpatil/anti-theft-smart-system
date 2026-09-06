@@ -44,6 +44,11 @@ class MQTTHandler:
         if settings.mqtt_username:
             self._client.username_pw_set(settings.mqtt_username, settings.mqtt_password)
 
+        # Enable TLS for port 8883 (EMQX Cloud, Mosquitto TLS, etc.)
+        if settings.mqtt_port == 8883:
+            import ssl
+            self._client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
+
     def start(self):
         """Connect to MQTT broker and start processing messages."""
         self._running = True

@@ -53,6 +53,7 @@ class Device(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_uid = Column(String(100), unique=True, nullable=False)
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=True)
+    provisioned = Column(Boolean, default=False)  # must be True before device can send alerts
     status = Column(String(50), default="offline")  # armed / disarmed / offline
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
     battery_pct = Column(Integer, default=-1)

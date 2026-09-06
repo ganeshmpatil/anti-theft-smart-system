@@ -22,10 +22,12 @@ OOMPolicy=kill
 # Environment
 Environment=PYTHONUNBUFFERED=1
 
-# Logging
+# Logging — rate-limit to prevent SD card wear from noisy debug logs
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=atss
+LogRateLimitIntervalSec=30
+LogRateLimitBurst=100
 
 [Install]
 WantedBy=multi-user.target

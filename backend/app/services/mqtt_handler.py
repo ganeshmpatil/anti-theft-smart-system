@@ -143,8 +143,8 @@ class MQTTHandler:
         db: Session = SessionLocal()
         try:
             device = db.query(Device).filter(Device.device_uid == device_uid).first()
-            if not device:
-                logger.warning("Alert from unknown device: %s", device_uid)
+            if not device or not device.provisioned:
+                logger.warning("Alert from unknown/unprovisioned device: %s", device_uid)
                 return
 
             # Store alert in database
@@ -214,7 +214,8 @@ class MQTTHandler:
     def _handle_heartbeat(self, device_uid: str, payload: bytes):
         """Process device heartbeat — update health metrics.
 
-        Auto-registers unknown devices when a heartbeat arrives from a new device_uid.
+        Rejects unknown or unprovisioned devices. Devices must be pre-registered
+        via /api/v1/admin/devices/provision before they are accepted.
         """
         try:
             data = json.loads(payload.decode())
@@ -225,14 +226,13 @@ class MQTTHandler:
         try:
             device = db.query(Device).filter(Device.device_uid == device_uid).first()
             if not device:
-                # Auto-register: edge device came online, create Device row
-                device = Device(
-                    device_uid=device_uid,
-                    status="online",
-                )
-                db.add(device)
-                db.flush()
-                logger.info("Auto-registered new device: %s (id=%d)", device_uid, device.id)
+                logger.warning("Heartbeat from unknown device %s — ignoring. "
+                               "Pre-register via /api/v1/admin/devices/provision first.", device_uid)
+                return
+
+            if not device.provisioned:
+                logger.warning("Heartbeat from unprovisioned device %s — ignoring.", device_uid)
+                return
 
             device.last_heartbeat = datetime.now(timezone.utc)
             device.battery_pct = data.get("battery_pct", -1)

@@ -12,7 +12,7 @@ from app.models.database import Base
 from app.services.mqtt_handler import MQTTHandler
 from app.services.notification import init_firebase
 from app.services.storage import StorageService
-from app.api import auth, devices, alerts, commands, live_feed
+from app.api import admin, auth, devices, alerts, commands, live_feed
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,8 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Starting Anti-Theft Smart System backend...")
 
-    # Create database tables
+    # In production, use Alembic migrations: cd backend && alembic upgrade head
+    # create_all is safe as a fallback — it only creates tables that don't exist yet
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready.")
 
@@ -80,6 +81,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(devices.router)
 app.include_router(alerts.router)

@@ -1,11 +1,14 @@
 """Alert manager with temporal filtering, capture window, cooldown, and offline queue."""
 
+import base64
 import json
 import logging
+import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -13,6 +16,9 @@ import numpy as np
 from .detection.human_detector import Detection
 
 logger = logging.getLogger(__name__)
+
+# Disk queue location — survives reboots
+_QUEUE_DIR = Path(os.environ.get("ATSS_QUEUE_DIR", "/opt/surveillance/queue"))
 
 
 @dataclass
@@ -75,8 +81,15 @@ class AlertManager:
         self._last_alert_time: dict[str, float] = {}
         self._capture_windows: dict[str, _CaptureWindow] = {}
 
-        # Offline alert queue
+        # Offline alert queue (in-memory + disk-backed)
         self._queue: deque[Alert] = deque(maxlen=max_queue_size)
+        self._max_queue_size = max_queue_size
+
+        # Ensure queue directory exists
+        _QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Restore any alerts persisted to disk from a previous crash/reboot
+        self._restore_queue_from_disk()
 
         self._alerts_today = 0
         self._last_reset_day = datetime.now(timezone.utc).date()
@@ -297,11 +310,12 @@ class AlertManager:
         return len(self._capture_windows) > 0
 
     def queue_alert(self, alert: Alert):
-        """Add alert to offline queue when MQTT is unavailable."""
+        """Add alert to offline queue when MQTT is unavailable. Persists to disk."""
         if len(self._queue) == self._queue.maxlen:
             logger.warning("Alert queue full (%d) — oldest alert will be dropped",
                            self._queue.maxlen)
         self._queue.append(alert)
+        self._persist_queue_to_disk()
         logger.info("Alert queued (queue size: %d)", len(self._queue))
 
     def queue_raw_payload(self, payload: str):
@@ -316,9 +330,10 @@ class AlertManager:
         self.queue_alert(raw_alert)
 
     def drain_queue(self) -> list[Alert]:
-        """Return all queued alerts and clear the queue."""
+        """Return all queued alerts and clear the queue + disk file."""
         alerts = list(self._queue)
         self._queue.clear()
+        self._clear_disk_queue()
         return alerts
 
     @property
@@ -371,3 +386,67 @@ class AlertManager:
         if today != self._last_reset_day:
             self._alerts_today = 0
             self._last_reset_day = today
+
+    # --- Disk persistence for offline queue ---
+
+    def _persist_queue_to_disk(self):
+        """Write current queue to a JSON file so alerts survive reboots."""
+        queue_file = _QUEUE_DIR / "pending_alerts.json"
+        try:
+            items = []
+            for alert in self._queue:
+                raw = getattr(alert, "_raw_payload", None)
+                items.append({
+                    "device_id": alert.device_id,
+                    "farm_id": alert.farm_id,
+                    "timestamp": alert.timestamp,
+                    "camera_id": alert.camera_id,
+                    "direction": alert.direction,
+                    "confidence": alert.confidence,
+                    "person_count": alert.person_count,
+                    "bboxes": alert.bboxes,
+                    "image_b64": base64.b64encode(alert.image_jpeg).decode() if alert.image_jpeg else "",
+                    "device_status": alert.device_status,
+                    "_raw_payload": raw,
+                })
+            tmp = queue_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(items))
+            tmp.replace(queue_file)  # atomic rename
+        except Exception:
+            logger.exception("Failed to persist alert queue to disk")
+
+    def _restore_queue_from_disk(self):
+        """Load queued alerts from disk on startup."""
+        queue_file = _QUEUE_DIR / "pending_alerts.json"
+        if not queue_file.exists():
+            return
+        try:
+            items = json.loads(queue_file.read_text())
+            for item in items:
+                alert = Alert(
+                    device_id=item["device_id"],
+                    farm_id=item["farm_id"],
+                    timestamp=item["timestamp"],
+                    camera_id=item.get("camera_id", ""),
+                    direction=item.get("direction", ""),
+                    confidence=item.get("confidence", 0.0),
+                    person_count=item.get("person_count", 0),
+                    bboxes=item.get("bboxes", []),
+                    image_jpeg=base64.b64decode(item["image_b64"]) if item.get("image_b64") else b"",
+                    device_status=item.get("device_status", {}),
+                )
+                raw = item.get("_raw_payload")
+                if raw:
+                    alert._raw_payload = raw
+                self._queue.append(alert)
+            logger.info("Restored %d queued alerts from disk", len(items))
+        except Exception:
+            logger.exception("Failed to restore alert queue from disk")
+
+    def _clear_disk_queue(self):
+        """Remove the persisted queue file after successful drain."""
+        queue_file = _QUEUE_DIR / "pending_alerts.json"
+        try:
+            queue_file.unlink(missing_ok=True)
+        except Exception:
+            logger.exception("Failed to clear disk queue file")

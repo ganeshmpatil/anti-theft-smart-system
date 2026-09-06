@@ -184,33 +184,54 @@ class HumanDetector:
         img = cv2.resize(frame, (self._input_size, self._input_size))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = img.astype(np.float32) / 255.0
-        img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        if self._backend_name != "tflite":
+            img = np.transpose(img, (2, 0, 1))  # HWC -> CHW (ONNX expects NCHW)
         img = np.expand_dims(img, axis=0)    # add batch dim
         return img.astype(self._backend.input_dtype)
 
     def _postprocess(self, output: np.ndarray, orig_w: int,
                      orig_h: int) -> list[Detection]:
-        """Filter detections: person class only, confidence threshold, NMS."""
-        # YOLOv5 output shape: [1, N, 85] (x, y, w, h, obj_conf, 80 class scores)
-        # or [N, 85] depending on export
+        """Filter detections: person class only, confidence threshold, NMS.
+
+        Handles two YOLOv5 output formats:
+          - v5 classic: [1, N, 85] — x,y,w,h, obj_conf, 80 class scores
+          - v5u (ultralytics): [1, 84, N] — x,y,w,h, 80 class scores (no obj_conf)
+        """
         output = output.astype(np.float32)
+
+        # Squeeze batch dim
         if output.ndim == 3:
             output = output[0]
+
+        # Detect v5u format: shape [84, N] where 84 < N — transpose to [N, 84]
+        if output.shape[0] < output.shape[1] and output.shape[0] in (84, 85):
+            output = output.T
+
+        num_attrs = output.shape[1]
+        has_obj_conf = (num_attrs == 85)  # v5 classic has obj_conf, v5u does not
 
         boxes = []
         confidences = []
 
         for row in output:
-            obj_conf = row[4]
-            if obj_conf < 0.3:
-                continue
+            if has_obj_conf:
+                # v5 classic: obj_conf * class_score
+                obj_conf = row[4]
+                if obj_conf < 0.3:
+                    continue
+                class_scores = row[5:]
+                class_id = int(np.argmax(class_scores))
+                if class_id != PERSON_CLASS_ID:
+                    continue
+                confidence = float(obj_conf * class_scores[class_id])
+            else:
+                # v5u: class scores directly (no obj_conf)
+                class_scores = row[4:]
+                class_id = int(np.argmax(class_scores))
+                if class_id != PERSON_CLASS_ID:
+                    continue
+                confidence = float(class_scores[class_id])
 
-            class_scores = row[5:]
-            class_id = int(np.argmax(class_scores))
-            if class_id != PERSON_CLASS_ID:
-                continue
-
-            confidence = float(obj_conf * class_scores[class_id])
             if confidence < self._conf_threshold:
                 continue
 

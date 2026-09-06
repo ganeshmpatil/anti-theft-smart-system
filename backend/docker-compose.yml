@@ -1,22 +1,26 @@
 version: "3.9"
 
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-farm_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-farm_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-farm_surveillance}
-    ports:
-      - "127.0.0.1:5432:5432"   # bind to localhost only
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-farm_user} -d ${POSTGRES_DB:-farm_surveillance}"]
-      interval: 5s
-      retries: 5
-    restart: unless-stopped
+# NOTE: Postgres is hosted on Neon (serverless, free tier).
+# The local postgres service is commented out. To use local Postgres instead,
+# uncomment the postgres service and change DATABASE_URL in .env.
+#
+#  postgres:
+#    image: postgres:16-alpine
+#    environment:
+#      POSTGRES_USER: ${POSTGRES_USER:-farm_user}
+#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-farm_pass}
+#      POSTGRES_DB: ${POSTGRES_DB:-farm_surveillance}
+#    ports:
+#      - "127.0.0.1:5432:5432"
+#    volumes:
+#      - pg_data:/var/lib/postgresql/data
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-farm_user} -d ${POSTGRES_DB:-farm_surveillance}"]
+#      interval: 5s
+#      retries: 5
+#    restart: unless-stopped
 
+services:
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
@@ -58,14 +62,12 @@ services:
       - .env
     environment:
       ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-farm_user}:${POSTGRES_PASSWORD:-farm_pass}@postgres:5432/${POSTGRES_DB:-farm_surveillance}
+      # DATABASE_URL comes from .env (Neon serverless Postgres)
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
     depends_on:
-      postgres:
-        condition: service_healthy
       mosquitto:
         condition: service_healthy
       minio:
@@ -87,7 +89,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  pg_data:
   mosquitto_data:
   minio_data:
   caddy_data:

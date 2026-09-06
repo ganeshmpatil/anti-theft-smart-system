@@ -1,8 +1,14 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'api_client.dart';
+import 'alarm_service.dart';
+import '../screens/alarm_screen.dart';
+
+/// Global navigator key — must be set on MaterialApp for alarm screen navigation.
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 /// Handles background FCM messages (must be top-level function).
 @pragma('vm:entry-point')
@@ -52,8 +58,11 @@ class NotificationService {
     // Listen for token refresh
     messaging.onTokenRefresh.listen(_registerToken);
 
-    // Handle foreground messages — show as local notification
+    // Handle foreground messages — show notification + trigger alarm
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+
+    // Initialize alarm service
+    await AlarmService().init();
   }
 
   static Future<void> _registerToken(String token) async {
@@ -74,6 +83,41 @@ class NotificationService {
       title: notification.title ?? 'Alert',
       body: notification.body ?? '',
     );
+
+    // Trigger alarm for intrusion alerts
+    final isIntrusion = message.data['type'] == 'intrusion' ||
+        (notification.title?.toLowerCase().contains('intrusion') ?? false) ||
+        (notification.title?.toLowerCase().contains('alert') ?? false);
+
+    if (isIntrusion) {
+      _triggerAlarm(
+        title: notification.title ?? 'Intrusion Alert',
+        body: notification.body ?? 'Motion detected on your farm!',
+        imageUrl: message.data['image_url'],
+      );
+    }
+  }
+
+  static Future<void> _triggerAlarm({
+    required String title,
+    required String body,
+    String? imageUrl,
+  }) async {
+    final alarm = AlarmService();
+    if (!alarm.alarmEnabled) return;
+
+    await alarm.play();
+
+    final nav = navigatorKey.currentState;
+    if (nav != null) {
+      nav.push(
+        MaterialPageRoute(
+          builder: (_) =>
+              AlarmScreen(title: title, body: body, imageUrl: imageUrl),
+          fullscreenDialog: true,
+        ),
+      );
+    }
   }
 
   static Future<void> showAlert({

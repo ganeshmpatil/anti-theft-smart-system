@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
+import '../services/alarm_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,6 +12,13 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _urlCtrl = TextEditingController(text: ApiClient.baseUrl);
   bool _saved = false;
+  late bool _alarmEnabled;
+
+  @override
+  void initState() {
+    super.initState();
+    _alarmEnabled = AlarmService().alarmEnabled;
+  }
 
   Future<void> _save() async {
     await ApiClient.saveBaseUrl(_urlCtrl.text.trim());
@@ -18,6 +26,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _saved = false);
     });
+  }
+
+  Future<void> _toggleAlarm(bool value) async {
+    await AlarmService().setAlarmEnabled(value);
+    setState(() => _alarmEnabled = value);
   }
 
   @override
@@ -48,6 +61,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             FilledButton(
               onPressed: _save,
               child: Text(_saved ? 'Saved!' : 'Save'),
+            ),
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Emergency Alarm'),
+              subtitle: const Text(
+                'Play loud alarm sound when intrusion is detected',
+              ),
+              secondary: Icon(
+                _alarmEnabled ? Icons.alarm_on : Icons.alarm_off,
+                color: _alarmEnabled ? Colors.red : null,
+              ),
+              value: _alarmEnabled,
+              onChanged: _toggleAlarm,
             ),
             const SizedBox(height: 24),
             const Text(

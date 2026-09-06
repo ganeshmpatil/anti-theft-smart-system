@@ -28,6 +28,7 @@ class FarmGuardApp extends StatelessWidget {
         return auth;
       },
       child: MaterialApp(
+        navigatorKey: navigatorKey,
         title: 'FarmGuard',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(

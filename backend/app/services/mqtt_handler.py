@@ -300,11 +300,18 @@ class MQTTHandler:
             if not farmer or not farmer.fcm_token:
                 continue
 
+            push_data = {
+                "alert_id": str(alert.id),
+                "device_uid": device.device_uid,
+                "type": "intrusion",
+            }
+            if alert.image_path:
+                push_data["image_url"] = self._storage.get_presigned_url(alert.image_path)
             send_push_notification(
                 fcm_token=farmer.fcm_token,
                 title=title,
                 body=body,
-                data={"alert_id": str(alert.id), "device_uid": device.device_uid},
+                data=push_data,
             )
 
     # --- Live feed subscriber management ---

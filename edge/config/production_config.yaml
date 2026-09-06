@@ -23,7 +23,9 @@ mqtt:
   client_key: ""
 
 detection:
-  model_path: "models/yolov5n.onnx"
+  backend: "tflite"              # tflite recommended for Pi 3 (ARMv7)
+  model_path: "models/yolov5n.tflite"
+  input_size: 320                # 320 for Pi 3 (~500ms), 640 for aarch64 (~300ms)
   confidence_threshold: 0.55     # Lower than sim — real scenes are harder
   nms_threshold: 0.45
   temporal_frames: 2             # Require 2 consecutive frames to confirm

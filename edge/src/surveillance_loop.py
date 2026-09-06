@@ -5,8 +5,10 @@ inference on each frame. Publishes alerts via MQTT when intrusions
 are confirmed.
 """
 
+import json
 import logging
 import time
+from collections import deque
 from datetime import datetime, timezone
 
 import cv2
@@ -77,7 +79,7 @@ class SurveillanceLoop:
         self._start_time = time.monotonic()
 
         # Metrics
-        self._inference_times: list[float] = []
+        self._inference_times: deque[float] = deque(maxlen=100)
         self._cycle_start = 0
 
     def run(self):
@@ -204,8 +206,6 @@ class SurveillanceLoop:
         detections = self._detector.detect(frame)
         inference_ms = (time.monotonic() - t0) * 1000
         self._inference_times.append(inference_ms)
-        if len(self._inference_times) > 100:
-            self._inference_times.pop(0)
 
         # Apply exclusion zones
         detections = self._exclusions.filter(camera_id, detections)
@@ -237,7 +237,6 @@ class SurveillanceLoop:
     def _handle_tamper(self):
         """Publish immediate tamper alert — queues if MQTT is offline."""
         logger.warning("TAMPER DETECTED — publishing alert")
-        import json
         device_cfg = self._config.get("device", {})
         payload = json.dumps({
             "device_id": device_cfg.get("device_id", "unknown"),
@@ -299,7 +298,7 @@ class SurveillanceLoop:
                 if frame is not None:
                     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     self._mqtt.publish_alert(
-                        '{"event_type": "snapshot_response", "camera_id": "' + camera.camera_id + '"}',
+                        json.dumps({"event_type": "snapshot_response", "camera_id": camera.camera_id}),
                         buf.tobytes(),
                     )
                     logger.info("Snapshot sent from %s", camera.camera_id)
@@ -363,7 +362,7 @@ class SurveillanceLoop:
         if not schedule.get("enabled", False):
             return True  # no schedule = always active
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now()  # local time — farmers configure in their timezone
         start_hour = schedule.get("start_hour", 0)
         end_hour = schedule.get("end_hour", 24)
 

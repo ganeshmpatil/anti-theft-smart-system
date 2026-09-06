@@ -1,22 +1,30 @@
-"""Stage 2: Human detection using YOLOv5n (ONNX Runtime).
+"""Stage 2: Human detection using YOLOv5n.
+
+Supports two inference backends selected via config:
+  - "onnx"   : ONNX Runtime  (default, needs onnxruntime)
+  - "tflite" : TensorFlow Lite (needs tflite-runtime, works on ARMv7 32-bit)
 
 Only runs on frames that passed the motion gate. Costs ~300ms on ARM,
 ~50-100ms on a laptop CPU.
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
-import onnxruntime as ort
 
 logger = logging.getLogger(__name__)
 
 PERSON_CLASS_ID = 0  # COCO class 0 = person
-INPUT_SIZE = 640
+
+# Default 320 for Pi 3 / low-RAM SBCs (~400-500ms inference)
+# Set to 640 for Orange Pi Zero 3 / x86 (~100-300ms inference)
+# Override via env YOLO_INPUT_SIZE or constructor input_size param
+DEFAULT_INPUT_SIZE = 320
 
 
 @dataclass
@@ -29,45 +37,116 @@ class Detection:
     confidence: float
 
 
-class HumanDetector:
-    """YOLOv5n person detector using ONNX Runtime."""
+class _OnnxBackend:
+    """ONNX Runtime inference backend."""
 
-    def __init__(self, model_path: str, confidence_threshold: float = 0.6,
-                 nms_threshold: float = 0.45):
-        self._model_path = model_path
-        self._conf_threshold = confidence_threshold
-        self._nms_threshold = nms_threshold
-        self._session: ort.InferenceSession | None = None
+    def __init__(self):
+        self._session = None
         self._input_name: str = ""
         self._input_dtype: np.dtype = np.float32
 
+    def load(self, model_path: str) -> bool:
+        import onnxruntime as ort
+
+        opts = ort.SessionOptions()
+        num_cores = os.cpu_count() or 2
+        opts.intra_op_num_threads = num_cores
+        opts.inter_op_num_threads = 1
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        self._session = ort.InferenceSession(
+            model_path, opts,
+            providers=["CPUExecutionProvider"],
+        )
+        input_info = self._session.get_inputs()[0]
+        self._input_name = input_info.name
+        onnx_type = input_info.type
+        if "float16" in onnx_type or "Float16" in onnx_type:
+            self._input_dtype = np.float16
+        else:
+            self._input_dtype = np.float32
+        logger.info("ONNX model loaded: %s (input dtype: %s)", model_path, self._input_dtype)
+        return True
+
+    @property
+    def input_dtype(self) -> np.dtype:
+        return self._input_dtype
+
+    def run(self, blob: np.ndarray) -> np.ndarray:
+        outputs = self._session.run(None, {self._input_name: blob})
+        return outputs[0]
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._session is not None
+
+
+class _TFLiteBackend:
+    """TensorFlow Lite inference backend."""
+
+    def __init__(self):
+        self._interpreter = None
+        self._input_index: int = 0
+        self._output_index: int = 0
+        self._input_dtype: np.dtype = np.float32
+
+    def load(self, model_path: str) -> bool:
+        from tflite_runtime.interpreter import Interpreter
+
+        num_cores = os.cpu_count() or 2
+        self._interpreter = Interpreter(model_path=model_path, num_threads=num_cores)
+        self._interpreter.allocate_tensors()
+
+        input_details = self._interpreter.get_input_details()[0]
+        output_details = self._interpreter.get_output_details()[0]
+
+        self._input_index = input_details["index"]
+        self._output_index = output_details["index"]
+        self._input_dtype = input_details["dtype"]
+        logger.info("TFLite model loaded: %s (input dtype: %s)", model_path, self._input_dtype)
+        return True
+
+    @property
+    def input_dtype(self) -> np.dtype:
+        return self._input_dtype
+
+    def run(self, blob: np.ndarray) -> np.ndarray:
+        self._interpreter.set_tensor(self._input_index, blob)
+        self._interpreter.invoke()
+        return self._interpreter.get_tensor(self._output_index)
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._interpreter is not None
+
+
+class HumanDetector:
+    """YOLOv5n person detector with pluggable inference backend."""
+
+    def __init__(self, model_path: str, confidence_threshold: float = 0.6,
+                 nms_threshold: float = 0.45, backend: str = "onnx",
+                 input_size: int = 0):
+        self._model_path = model_path
+        self._conf_threshold = confidence_threshold
+        self._nms_threshold = nms_threshold
+        self._backend_name = backend
+        self._input_size = input_size or int(os.environ.get("YOLO_INPUT_SIZE", DEFAULT_INPUT_SIZE))
+        self._backend: _OnnxBackend | _TFLiteBackend | None = None
+
     def load(self) -> bool:
-        """Load the ONNX model into memory."""
+        """Load the model using the configured backend."""
         if not Path(self._model_path).exists():
             logger.error("Model file not found: %s", self._model_path)
             return False
         try:
-            opts = ort.SessionOptions()
-            opts.intra_op_num_threads = 2
-            opts.inter_op_num_threads = 1
-            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
-            self._session = ort.InferenceSession(
-                self._model_path, opts,
-                providers=["CPUExecutionProvider"],
-            )
-            input_info = self._session.get_inputs()[0]
-            self._input_name = input_info.name
-            # Detect model's expected input dtype (float16 or float32)
-            onnx_type = input_info.type
-            if "float16" in onnx_type or "Float16" in onnx_type:
-                self._input_dtype = np.float16
+            if self._backend_name == "tflite":
+                self._backend = _TFLiteBackend()
             else:
-                self._input_dtype = np.float32
-            logger.info("Model loaded: %s (input dtype: %s)", self._model_path, self._input_dtype)
-            return True
+                self._backend = _OnnxBackend()
+            return self._backend.load(self._model_path)
         except Exception:
-            logger.exception("Failed to load model")
+            logger.exception("Failed to load model with %s backend", self._backend_name)
+            self._backend = None
             return False
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
@@ -79,7 +158,7 @@ class HumanDetector:
         Returns:
             List of Detection objects for persons found
         """
-        if self._session is None:
+        if self._backend is None or not self._backend.is_loaded:
             return []
 
         orig_h, orig_w = frame.shape[:2]
@@ -89,10 +168,10 @@ class HumanDetector:
         blob = self._preprocess(frame)
 
         # Inference
-        outputs = self._session.run(None, {self._input_name: blob})
+        output = self._backend.run(blob)
 
         # Post-process: filter person class, NMS, scale to original coords
-        detections = self._postprocess(outputs[0], orig_w, orig_h)
+        detections = self._postprocess(output, orig_w, orig_h)
 
         elapsed = (time.monotonic() - t0) * 1000
         if detections:
@@ -102,12 +181,12 @@ class HumanDetector:
 
     def _preprocess(self, frame: np.ndarray) -> np.ndarray:
         """Resize, normalize, and prepare input tensor."""
-        img = cv2.resize(frame, (INPUT_SIZE, INPUT_SIZE))
+        img = cv2.resize(frame, (self._input_size, self._input_size))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = img.astype(np.float32) / 255.0
         img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
         img = np.expand_dims(img, axis=0)    # add batch dim
-        return img.astype(self._input_dtype)
+        return img.astype(self._backend.input_dtype)
 
     def _postprocess(self, output: np.ndarray, orig_w: int,
                      orig_h: int) -> list[Detection]:
@@ -137,10 +216,10 @@ class HumanDetector:
 
             # Convert from center coords to top-left coords
             cx, cy, bw, bh = row[0], row[1], row[2], row[3]
-            x = int((cx - bw / 2) * orig_w / INPUT_SIZE)
-            y = int((cy - bh / 2) * orig_h / INPUT_SIZE)
-            w = int(bw * orig_w / INPUT_SIZE)
-            h = int(bh * orig_h / INPUT_SIZE)
+            x = int((cx - bw / 2) * orig_w / self._input_size)
+            y = int((cy - bh / 2) * orig_h / self._input_size)
+            w = int(bw * orig_w / self._input_size)
+            h = int(bh * orig_h / self._input_size)
 
             boxes.append([x, y, w, h])
             confidences.append(confidence)
@@ -166,4 +245,4 @@ class HumanDetector:
 
     @property
     def is_loaded(self) -> bool:
-        return self._session is not None
+        return self._backend is not None and self._backend.is_loaded

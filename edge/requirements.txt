@@ -1,6 +1,12 @@
 opencv-python-headless==4.9.0.80
-onnxruntime==1.17.3
 paho-mqtt==2.1.0
 numpy==1.26.4
 Pillow==10.3.0
 PyYAML==6.0.1
+
+# Inference backend — install ONE based on your platform:
+# x86/aarch64:  pip install onnxruntime==1.17.3
+# Pi 3 (ARMv7): pip install tflite-runtime
+# Pi 4/5 (aarch64): pip install onnxruntime==1.17.3
+#
+# For Pi 3: also export YOLO_INPUT_SIZE=320 or set detection.input_size in config

@@ -33,7 +33,9 @@ mqtt:
   client_key: ""
 
 detection:
+  backend: "onnx"             # "onnx" (default) | "tflite" (for ARMv7/Pi 3)
   model_path: "models/yolov5n.onnx"
+  input_size: 320             # 320 for Pi 3 (~500ms), 640 for x86/aarch64 (~100ms)
   confidence_threshold: 0.45
   nms_threshold: 0.45
   temporal_frames: 2

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 
 from .interfaces import IWatchdogProvider
 
@@ -38,7 +39,6 @@ class HardwareWatchdogProvider(IWatchdogProvider):
         try:
             with open(unbind_path, "w") as f:
                 f.write(port)
-            import time
             time.sleep(1)
             with open(bind_path, "w") as f:
                 f.write(port)

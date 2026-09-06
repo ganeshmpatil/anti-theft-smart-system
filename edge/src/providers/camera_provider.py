@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 INFER_WIDTH = 640
 INFER_HEIGHT = 480
-HIRES_WIDTH = 1280
-HIRES_HEIGHT = 720
+HIRES_WIDTH = 640
+HIRES_HEIGHT = 480
 
 
 class USBCameraProvider(ICameraProvider):
@@ -39,6 +39,8 @@ class USBCameraProvider(ICameraProvider):
             self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, INFER_WIDTH)
             self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, INFER_HEIGHT)
             self._cap.set(cv2.CAP_PROP_FPS, 15)
+            # Minimize internal buffer to avoid stale frames after slow inference
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self._last_frame_time = time.monotonic()
             logger.info("Camera %s opened at %s", self._camera_id, self._device_path)
             return True
@@ -58,16 +60,17 @@ class USBCameraProvider(ICameraProvider):
         return frame
 
     def read_hires_frame(self) -> Optional[np.ndarray]:
-        if self._cap is None or not self._cap.isOpened():
+        """Read a frame at capture resolution (no resolution toggling).
+
+        On SBCs, changing resolution mid-stream triggers V4L2 re-negotiation
+        which can take 200-500ms or hang the capture. Instead, always capture
+        at the fixed resolution and resize if needed.
+        """
+        frame = self.read_frame()
+        if frame is None:
             return None
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, HIRES_WIDTH)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HIRES_HEIGHT)
-        ret, frame = self._cap.read()
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, INFER_WIDTH)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, INFER_HEIGHT)
-        if not ret or frame is None:
-            return None
-        self._last_frame_time = time.monotonic()
+        if frame.shape[1] != HIRES_WIDTH or frame.shape[0] != HIRES_HEIGHT:
+            return cv2.resize(frame, (HIRES_WIDTH, HIRES_HEIGHT))
         return frame
 
     def is_alive(self) -> bool:

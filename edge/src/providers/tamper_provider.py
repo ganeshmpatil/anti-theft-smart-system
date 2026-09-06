@@ -16,19 +16,19 @@ class GPIOTamperProvider(ITamperProvider):
         self._gpio_pin = gpio_pin
         self._tampered = False
         self._callback: Optional[Callable[[], None]] = None
-        self._running = False
+        self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
     def start(self):
         """Start monitoring GPIO pin for tamper events."""
-        self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._thread.start()
 
     def _monitor_loop(self):
         try:
             gpio_path = f"/sys/class/gpio/gpio{self._gpio_pin}/value"
-            while self._running:
+            while not self._stop_event.is_set():
                 try:
                     with open(gpio_path) as f:
                         val = f.read().strip()
@@ -39,12 +39,12 @@ class GPIOTamperProvider(ITamperProvider):
                             self._callback()
                 except FileNotFoundError:
                     pass
-                threading.Event().wait(0.5)
+                self._stop_event.wait(0.5)
         except Exception:
             logger.exception("GPIO tamper monitor error")
 
     def stop(self):
-        self._running = False
+        self._stop_event.set()
 
     def is_tampered(self) -> bool:
         was_tampered = self._tampered

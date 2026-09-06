@@ -78,13 +78,18 @@ def main():
         logger.warning("Failed to open camera 2 — running single camera mode")
 
     # Load YOLO model
-    model_path = config.get("detection", {}).get("model_path", "models/yolov5n.onnx")
-    confidence = config.get("detection", {}).get("confidence_threshold", 0.6)
-    detector = HumanDetector(model_path=model_path, confidence_threshold=confidence)
+    det_cfg = config.get("detection", {})
+    model_path = det_cfg.get("model_path", "models/yolov5n.onnx")
+    confidence = det_cfg.get("confidence_threshold", 0.6)
+    backend = det_cfg.get("backend", "onnx")
+    input_size = det_cfg.get("input_size", 0)
+    detector = HumanDetector(model_path=model_path, confidence_threshold=confidence,
+                             backend=backend, input_size=input_size)
     if not detector.load():
-        logger.error("Failed to load YOLO model at %s — exiting", model_path)
+        logger.error("Failed to load YOLO model at %s (backend=%s) — exiting", model_path, backend)
         sys.exit(1)
-    logger.info("YOLO model loaded: %s (threshold=%.2f)", model_path, confidence)
+    logger.info("YOLO model loaded: %s (backend=%s, input=%d, threshold=%.2f)",
+                model_path, backend, detector._input_size, confidence)
 
     # Initialize MQTT client
     mqtt_cfg = config.get("mqtt", {})

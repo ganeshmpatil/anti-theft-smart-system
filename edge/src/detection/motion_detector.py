@@ -4,6 +4,8 @@ Runs on every frame. Costs ~5ms. Filters out 90% of static frames
 so that the expensive YOLO inference only runs when there's actual movement.
 """
 
+import time
+
 import cv2
 import numpy as np
 
@@ -11,25 +13,26 @@ import numpy as np
 class MotionDetector:
     """Detects motion by computing absolute frame difference.
 
-    Uses a slowly-updating reference frame instead of the immediately
-    previous frame so that gradual motion (e.g. a person walking slowly)
-    still accumulates a visible pixel delta.
+    Uses exponential moving average for the reference frame so it adapts
+    to gradual lighting changes (sunset, clouds) without periodic jumps.
     """
 
-    def __init__(self, min_contour_area: int = 3000, blur_kernel: int = 21,
-                 pixel_threshold: int = 20, ref_update_interval: int = 100):
+    def __init__(self, min_contour_area: int = 3000, blur_kernel: int = 11,
+                 pixel_threshold: int = 20, ref_update_seconds: float = 10.0,
+                 ema_alpha: float = 0.02):
         self._min_area = min_contour_area
         self._blur_kernel = (blur_kernel, blur_kernel)
         self._pixel_threshold = pixel_threshold
-        self._ref_update_interval = ref_update_interval
+        self._ref_update_seconds = ref_update_seconds
+        self._ema_alpha = ema_alpha
         self._ref_gray: np.ndarray | None = None
-        self._frame_count = 0
+        self._last_ref_time: float = 0
 
     def detect(self, frame: np.ndarray) -> tuple[bool, int]:
         """Check if significant motion exists in the frame.
 
         Args:
-            frame: BGR image (640x480)
+            frame: BGR image
 
         Returns:
             (motion_detected: bool, motion_area: int)
@@ -38,16 +41,17 @@ class MotionDetector:
         gray = cv2.GaussianBlur(gray, self._blur_kernel, 0)
 
         if self._ref_gray is None:
-            self._ref_gray = gray
+            self._ref_gray = gray.astype(np.float32)
+            self._last_ref_time = time.monotonic()
             return False, 0
 
-        delta = cv2.absdiff(self._ref_gray, gray)
+        delta = cv2.absdiff(self._ref_gray.astype(np.uint8), gray)
 
-        # Update reference frame periodically (not every frame)
-        self._frame_count += 1
-        if self._frame_count >= self._ref_update_interval:
-            self._ref_gray = gray
-            self._frame_count = 0
+        # EMA update: smooth reference adapts to gradual lighting changes
+        now = time.monotonic()
+        if (now - self._last_ref_time) >= self._ref_update_seconds:
+            cv2.accumulateWeighted(gray, self._ref_gray, self._ema_alpha)
+            self._last_ref_time = now
 
         thresh = cv2.threshold(delta, self._pixel_threshold, 255, cv2.THRESH_BINARY)[1]
         thresh = cv2.dilate(thresh, None, iterations=2)
@@ -65,4 +69,4 @@ class MotionDetector:
     def reset(self):
         """Reset the reference frame (e.g., after camera switch)."""
         self._ref_gray = None
-        self._frame_count = 0
+        self._last_ref_time = 0

@@ -2,7 +2,7 @@
 # Change 'mode' to switch between simulation and production.
 # NO code changes required.
 
-mode: "simulation"  # "simulation" | "webcam" | "production"
+mode: "webcam"  # "simulation" | "webcam" | "production"
 
 device:
   device_id: "FARM-SIM-001"
@@ -17,7 +17,7 @@ camera:
   webcam:
     cam1_source: 0          # /dev/video0 (laptop webcam)
     cam2_source: 0          # same webcam, split into two halves
-    split_mode: true
+    split_mode: false       # false = full frame (better for laptop testing)
   production:
     cam1_source: "/dev/video0"
     cam2_source: "/dev/video2"

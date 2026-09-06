@@ -111,6 +111,35 @@ def get_alert_image(
             pass
 
 
+@router.delete("")
+def clear_alerts(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete all alerts and their images for the current user's devices."""
+    allowed_ids = _user_device_ids(user, db)
+    if not allowed_ids:
+        return {"deleted": 0}
+
+    # Collect image paths before deleting DB records
+    alerts = db.query(Alert).filter(Alert.device_id.in_(allowed_ids)).all()
+    image_paths = [a.image_path for a in alerts if a.image_path]
+
+    count = db.query(Alert).filter(Alert.device_id.in_(allowed_ids)).delete(
+        synchronize_session="fetch"
+    )
+    db.commit()
+
+    # Delete images from MinIO
+    storage = _get_storage(request)
+    if storage and image_paths:
+        for path in image_paths:
+            storage.delete_image(path)
+
+    return {"deleted": count, "images_deleted": len(image_paths)}
+
+
 @router.patch("/{alert_id}/ack", response_model=AlertResponse)
 def acknowledge_alert(
     alert_id: int,

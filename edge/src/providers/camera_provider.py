@@ -155,6 +155,90 @@ class VideoFileProvider(ICameraProvider):
             logger.info("Video source %s released", self._camera_id)
 
 
+class WebcamFullProvider(ICameraProvider):
+    """Uses the full laptop webcam frame (no splitting).
+
+    Both cam_front and cam_rear share the same capture and return the
+    same full frame — useful for laptop testing where splitting halves
+    the image and makes detection unreliable.
+    """
+
+    # Class-level shared capture (same pattern as WebcamSplitProvider)
+    _shared_caps: dict[int, cv2.VideoCapture] = {}
+    _shared_ref_count: dict[int, int] = {}
+    _shared_frame: dict[int, tuple[float, Optional[np.ndarray]]] = {}
+
+    def __init__(self, device_index: int, camera_id: str):
+        self._device_index = device_index
+        self._camera_id = camera_id
+        self._cap: Optional[cv2.VideoCapture] = None
+
+    @property
+    def camera_id(self) -> str:
+        return self._camera_id
+
+    def open(self) -> bool:
+        try:
+            if self._device_index not in WebcamFullProvider._shared_caps:
+                cap = cv2.VideoCapture(self._device_index)
+                if not cap.isOpened():
+                    logger.error("Failed to open webcam %d for %s", self._device_index, self._camera_id)
+                    return False
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, INFER_WIDTH)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, INFER_HEIGHT)
+                WebcamFullProvider._shared_caps[self._device_index] = cap
+                WebcamFullProvider._shared_ref_count[self._device_index] = 0
+            self._cap = WebcamFullProvider._shared_caps[self._device_index]
+            WebcamFullProvider._shared_ref_count[self._device_index] += 1
+            logger.info("Webcam full-frame opened for %s", self._camera_id)
+            return True
+        except Exception:
+            logger.exception("Error opening webcam for %s", self._camera_id)
+            return False
+
+    def _read_shared_frame(self) -> Optional[np.ndarray]:
+        if self._cap is None or not self._cap.isOpened():
+            return None
+        now = time.monotonic()
+        cached = WebcamFullProvider._shared_frame.get(self._device_index)
+        if cached is None or (now - cached[0]) > 0.005:
+            ret, frame = self._cap.read()
+            if not ret or frame is None:
+                return None
+            WebcamFullProvider._shared_frame[self._device_index] = (now, frame)
+            return frame
+        return cached[1]
+
+    def read_frame(self) -> Optional[np.ndarray]:
+        frame = self._read_shared_frame()
+        if frame is None:
+            return None
+        if frame.shape[1] != INFER_WIDTH or frame.shape[0] != INFER_HEIGHT:
+            frame = cv2.resize(frame, (INFER_WIDTH, INFER_HEIGHT))
+        return frame
+
+    def read_hires_frame(self) -> Optional[np.ndarray]:
+        frame = self.read_frame()
+        if frame is None:
+            return None
+        return cv2.resize(frame, (HIRES_WIDTH, HIRES_HEIGHT))
+
+    def is_alive(self) -> bool:
+        return self._cap is not None and self._cap.isOpened()
+
+    def release(self) -> None:
+        if self._cap is not None and self._device_index in WebcamFullProvider._shared_ref_count:
+            WebcamFullProvider._shared_ref_count[self._device_index] -= 1
+            if WebcamFullProvider._shared_ref_count[self._device_index] <= 0:
+                self._cap.release()
+                del WebcamFullProvider._shared_caps[self._device_index]
+                del WebcamFullProvider._shared_ref_count[self._device_index]
+                if self._device_index in WebcamFullProvider._shared_frame:
+                    del WebcamFullProvider._shared_frame[self._device_index]
+            self._cap = None
+            logger.info("Webcam full-frame released for %s", self._camera_id)
+
+
 class WebcamSplitProvider(ICameraProvider):
     """Simulation provider: splits a single laptop webcam into two virtual cameras.
 

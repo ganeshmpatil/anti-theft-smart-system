@@ -17,8 +17,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
   bool _loadingMore = false;
   String? _error;
   int _offset = 0;
-  static const _limit = 20;
-  bool _hasMore = true;
+  static const _limit = 50;
+  bool _hasMore = false;
 
   @override
   void initState() {
@@ -62,6 +62,49 @@ class _AlertsScreenState extends State<AlertsScreen> {
         _loading = false;
         _loadingMore = false;
       });
+    }
+  }
+
+  Future<void> _clearAllAlerts() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear All Alerts'),
+        content: const Text(
+            'This will permanently delete all alerts. This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiClient.delete('/alerts');
+      if (mounted) {
+        setState(() {
+          _alerts = [];
+          _offset = 0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All alerts cleared')),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -239,7 +282,17 @@ class _AlertsScreenState extends State<AlertsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Alerts')),
+      appBar: AppBar(
+        title: const Text('Alerts'),
+        actions: [
+          if (_alerts.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep),
+              tooltip: 'Clear all alerts',
+              onPressed: _clearAllAlerts,
+            ),
+        ],
+      ),
       body: _loading && _alerts.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : _error != null && _alerts.isEmpty

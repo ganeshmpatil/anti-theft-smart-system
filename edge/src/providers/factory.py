@@ -65,8 +65,15 @@ def create_providers(config: dict) -> Providers:
 
     elif mode == "webcam":
         device_index = cam_config.get("cam1_source", 0)
-        cam1 = WebcamSplitProvider(device_index, "cam_front", half="left")
-        cam2 = WebcamSplitProvider(device_index, "cam_rear", half="right")
+        split_mode = cam_config.get("split_mode", True)
+        if split_mode:
+            cam1 = WebcamSplitProvider(device_index, "cam_front", half="left")
+            cam2 = WebcamSplitProvider(device_index, "cam_rear", half="right")
+        else:
+            # Full-frame mode: use entire webcam as cam_front, cam_rear is a dummy
+            from .camera_provider import WebcamFullProvider
+            cam1 = WebcamFullProvider(device_index, "cam_front")
+            cam2 = WebcamFullProvider(device_index, "cam_rear")
         tamper = MockTamperProvider()
         thermal = MockThermalProvider(sim_config.get("mock_cpu_temp", 55.0))
         power = MockPowerProvider(

@@ -114,6 +114,7 @@ def main():
         farm_id=farm_id,
         temporal_frames=det_cfg.get("temporal_frames", 3),
         cooldown_seconds=det_cfg.get("cooldown_seconds", 300),
+        capture_window_seconds=det_cfg.get("capture_window_seconds", 3.0),
     )
 
     # Start tamper monitoring (GPIO polling thread in production mode)

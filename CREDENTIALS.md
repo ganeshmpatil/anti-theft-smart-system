@@ -51,7 +51,7 @@
 | **MQTT TLS Port** | `8883` |
 | **WebSocket TLS Port** | `8084` |
 | **Username** | `farmguard-backend` |
-| **Password** | `FarmGuard2026!` |
+| **Password** | `farmguard-backend` |
 | **CA Certificate** | DigiCert Global Root G2 (expires 2038) — file: `backend/certs/emqxsl-ca.crt` |
 | **Dashboard** | https://cloud-intl.emqx.com/console |
 | **Free Tier** | 1M session minutes/month, 1 GB traffic/month |
@@ -113,7 +113,7 @@ JWT_SECRET_KEY=fsq4ZwAq2u2VnRGuFi-ZsKyual3Uc6X7a8dyHKRFgS8
 MQTT_BROKER=w1196cd6.ala.asia-southeast1.emqxsl.com
 MQTT_PORT=8883
 MQTT_USERNAME=farmguard-backend
-MQTT_PASSWORD=FarmGuard2026!
+MQTT_PASSWORD=farmguard-backend
 MINIO_ENDPOINT=hixzeyeijkhbhphmjynq.supabase.co/storage/v1/s3
 MINIO_ACCESS_KEY=79cae5060370d6da722589c3b86ab8a6
 MINIO_SECRET_KEY=b0486ced3e2bf680ab8726ab60dd6144fb1f3ecd6fbf04af2bbec759880d97af

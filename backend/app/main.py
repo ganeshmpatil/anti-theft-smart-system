@@ -11,6 +11,7 @@ from app.config import settings
 from app.db.session import engine
 from app.models.database import Base
 from app.services.mqtt_handler import MQTTHandler
+from app.services.notification import init_firebase
 from app.services.storage import StorageService
 from app.api import auth, devices, alerts, commands, live_feed
 
@@ -35,6 +36,9 @@ async def lifespan(app: FastAPI):
     # Create database tables
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready.")
+
+    # Initialize Firebase for push notifications
+    init_firebase()
 
     # Ensure MinIO bucket exists
     storage = StorageService()

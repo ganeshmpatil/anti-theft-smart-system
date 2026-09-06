@@ -46,6 +46,7 @@ mobile/ios/Pods/
 # Backend
 backend/*.db
 backend/uploads/
+backend/firebase-admin-key.json
 
 # Logs
 *.log

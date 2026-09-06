@@ -4,60 +4,64 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: farm_user
-      POSTGRES_PASSWORD: farm_pass
-      POSTGRES_DB: farm_surveillance
+      POSTGRES_USER: ${POSTGRES_USER:-farm_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-farm_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-farm_surveillance}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"   # bind to localhost only
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U farm_user -d farm_surveillance"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-farm_user} -d ${POSTGRES_DB:-farm_surveillance}"]
       interval: 5s
       retries: 5
+    restart: unless-stopped
 
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
-      - "1883:1883"
+      - "1883:1883"     # plain MQTT (internal / docker network)
+      - "8883:8883"     # MQTT over TLS (edge devices connect here)
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./certs:/mosquitto/certs:ro
       - mosquitto_data:/mosquitto/data
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -W 3 || exit 1"]
       interval: 10s
       retries: 3
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"   # bind to localhost only
+      - "127.0.0.1:9001:9001"   # MinIO console — localhost only
     volumes:
       - minio_data:/data
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       retries: 3
+    restart: unless-stopped
 
   backend:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # only Caddy should access this
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://farm_user:farm_pass@postgres:5432/farm_surveillance
+      ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-farm_user}:${POSTGRES_PASSWORD:-farm_pass}@postgres:5432/${POSTGRES_DB:-farm_surveillance}
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
       MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: farm-alerts
       MINIO_SECURE: "false"
     depends_on:
       postgres:
@@ -66,8 +70,25 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   pg_data:
   mosquitto_data:
   minio_data:
+  caddy_data:
+  caddy_config:

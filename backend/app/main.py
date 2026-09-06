@@ -1,7 +1,6 @@
 """FastAPI application entry point."""
 
 import logging
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,11 +16,16 @@ from app.api import auth, devices, alerts, commands, live_feed
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://localhost:5000,http://localhost:5500").split(",")
-
-# For local development, allow all origins if no CORS_ORIGINS env is set
-if not os.getenv("CORS_ORIGINS"):
-    ALLOWED_ORIGINS = ["*"]
+if settings.cors_origins:
+    ALLOWED_ORIGINS = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+else:
+    # Development fallback — restrict to common local dev ports
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://localhost:5000",
+        "http://localhost:5500",
+    ]
 
 
 @asynccontextmanager

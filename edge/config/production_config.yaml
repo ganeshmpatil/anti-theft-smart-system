@@ -14,11 +14,11 @@ camera:
 
 mqtt:
   broker: "YOUR_VPS_IP"         # Replace with your server IP or domain
-  port: 1883
-  username: ""                   # Set if mosquitto auth enabled
-  password: ""
-  tls_enabled: false
-  ca_cert: ""
+  port: 8883                     # TLS port
+  username: "FARM-001"           # From mosquitto/credentials/FARM-001.env
+  password: "CHANGE_ME"          # From mosquitto/credentials/FARM-001.env
+  tls_enabled: true
+  ca_cert: "/opt/surveillance/certs/ca.crt"   # Copy from server
   client_cert: ""
   client_key: ""
 

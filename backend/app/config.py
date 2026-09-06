@@ -1,7 +1,9 @@
 """Application configuration loaded from environment variables."""
 
 import logging
+import os
 import secrets
+import sys
 
 from pydantic_settings import BaseSettings
 
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
     # JWT
     jwt_secret_key: str = _INSECURE_JWT_DEFAULT
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 1440
+    jwt_expire_minutes: int = 43200  # 30 days — farmers shouldn't need to re-login often
 
     # Firebase
     firebase_credentials_path: str = ""
@@ -39,14 +41,26 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # CORS — comma-separated list of allowed origins
+    cors_origins: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
 
+_is_production = os.getenv("ENV", "development") == "production"
+
 if settings.jwt_secret_key == _INSECURE_JWT_DEFAULT:
-    settings.jwt_secret_key = secrets.token_urlsafe(32)
-    logger.warning(
-        "JWT_SECRET_KEY not set — using random ephemeral secret. "
-        "Tokens will NOT survive server restarts. Set JWT_SECRET_KEY in .env for production."
-    )
+    if _is_production:
+        logger.critical(
+            "FATAL: JWT_SECRET_KEY is not set. Refusing to start in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+        sys.exit(1)
+    else:
+        settings.jwt_secret_key = secrets.token_urlsafe(32)
+        logger.warning(
+            "JWT_SECRET_KEY not set — using random ephemeral secret. "
+            "Tokens will NOT survive server restarts. Set JWT_SECRET_KEY in .env for production."
+        )

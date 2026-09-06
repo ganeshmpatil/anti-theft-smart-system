@@ -47,6 +47,8 @@ mobile/ios/Pods/
 backend/*.db
 backend/uploads/
 backend/firebase-admin-key.json
+backend/mosquitto/passwd
+backend/mosquitto/credentials/
 
 # Logs
 *.log
@@ -59,4 +61,8 @@ docker-compose.override.yml
 *.pem
 *.key
 *.crt
+*.csr
+*.srl
 !certs/.gitkeep
+backend/certs/*.key
+backend/certs/*.crt

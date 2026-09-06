@@ -1,0 +1,23 @@
+# Caddy reverse proxy with automatic HTTPS
+#
+# For production: replace :443 with your domain (e.g., api.farmguard.in)
+# Caddy will auto-provision Let's Encrypt TLS certificates.
+#
+# For local/VPS without domain: use the IP-based config below.
+
+# === Option A: Domain-based (recommended for production) ===
+# api.farmguard.in {
+#     reverse_proxy backend:8000
+# }
+
+# === Option B: IP-based with self-signed cert (VPS without domain) ===
+:443 {
+    tls /etc/caddy/certs/server.crt /etc/caddy/certs/server.key
+
+    reverse_proxy backend:8000
+}
+
+# HTTP redirect to HTTPS
+:80 {
+    redir https://{host}{uri} permanent
+}

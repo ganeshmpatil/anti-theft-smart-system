@@ -102,6 +102,7 @@ class MQTTHandler:
             client.subscribe("farm/+/device/+/image", qos=1)
             client.subscribe("farm/+/device/+/heartbeat", qos=0)
             client.subscribe("farm/+/device/+/status", qos=1)
+            client.subscribe("farm/+/device/+/video", qos=1)
             client.subscribe("farm/+/device/+/live_frame", qos=0)
         else:
             logger.error("MQTT handler connection failed (rc=%s)", rc)
@@ -123,6 +124,8 @@ class MQTTHandler:
                 self._handle_alert(device_uid, msg.payload)
             elif msg_type == "image":
                 self._handle_image(device_uid, msg.payload)
+            elif msg_type == "video":
+                self._handle_video(device_uid, msg.payload)
             elif msg_type == "heartbeat":
                 self._handle_heartbeat(device_uid, msg.payload)
             elif msg_type == "status":
@@ -212,6 +215,44 @@ class MQTTHandler:
             latest_alert.image_path = object_name
             db.commit()
             logger.info("Image stored: %s (%d bytes)", object_name, len(payload))
+
+        finally:
+            db.close()
+
+    def _handle_video(self, device_uid: str, payload: bytes):
+        """Process alert video clip from edge device."""
+        if not payload:
+            return
+
+        db: Session = SessionLocal()
+        try:
+            device = db.query(Device).filter(Device.device_uid == device_uid).first()
+            if not device:
+                return
+
+            # Find the most recent alert to attach the video to
+            latest_alert = (
+                db.query(Alert)
+                .filter(Alert.device_id == device.id)
+                .order_by(Alert.created_at.desc())
+                .first()
+            )
+            if not latest_alert:
+                return
+
+            # Generate video object name
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            object_name = f"{device_uid}/clip_{timestamp}.mp4"
+
+            # Store in S3
+            if self._storage:
+                self._storage.upload_image(object_name, payload,
+                                           content_type="video/mp4")
+
+            # Update alert's video_path
+            latest_alert.video_path = object_name
+            db.commit()
+            logger.info("Video stored: %s (%d KB)", object_name, len(payload) // 1024)
 
         finally:
             db.close()

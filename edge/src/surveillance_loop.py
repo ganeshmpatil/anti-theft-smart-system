@@ -26,6 +26,7 @@ from .providers.interfaces import (
     IThermalProvider,
     IWatchdogProvider,
 )
+from .video_recorder import VideoRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,9 @@ class SurveillanceLoop:
                 min_contour_area=config.get("detection", {}).get("min_motion_area", 3000)
             ),
         }
+
+        self._video_recorder = VideoRecorder()
+        self._pending_video_alert_payload: str | None = None
 
         self._running = False
         self._debug_window = config.get("simulation", {}).get("enable_debug_window", False)
@@ -144,6 +148,9 @@ class SurveillanceLoop:
                 # Flush offline queue if connected
                 self._flush_alert_queue()
 
+                # Collect video clip if recording is done
+                self._maybe_collect_video()
+
                 # Handle on-demand snapshot
                 if self._commands.snapshot_requested:
                     self._handle_snapshot_request()
@@ -213,6 +220,9 @@ class SurveillanceLoop:
         if self._debug_window:
             self._show_debug(camera_id, frame, motion_detected, motion_area, detections)
 
+        # Push every frame to video recorder ring buffer
+        self._video_recorder.push_frame(frame)
+
         if not detections:
             return
 
@@ -225,7 +235,7 @@ class SurveillanceLoop:
         if alert is None:
             return
 
-        # Publish alert
+        # Publish alert (snapshot + metadata)
         payload = self._alerts.to_payload(alert)
         if self._mqtt.is_connected:
             success = self._mqtt.publish_alert(payload, alert.image_jpeg)
@@ -233,6 +243,11 @@ class SurveillanceLoop:
                 self._alerts.queue_alert(alert)
         else:
             self._alerts.queue_alert(alert)
+
+        # Trigger video recording (captures 5s pre + 5s post)
+        if not self._video_recorder.is_recording():
+            self._video_recorder.trigger()
+            self._pending_video_alert_payload = payload
 
     def _handle_tamper(self):
         """Publish immediate tamper alert — queues if MQTT is offline."""
@@ -338,6 +353,25 @@ class SurveillanceLoop:
             success = self._mqtt.publish_alert(payload, alert.image_jpeg)
             if not success:
                 self._alerts.queue_alert(alert)
+
+    def _maybe_collect_video(self):
+        """Collect and publish the video clip once post-event recording is done."""
+        if not self._video_recorder.should_collect():
+            return
+
+        clip = self._video_recorder.collect()
+        if clip is None:
+            return
+
+        logger.info("Video clip ready: %.1fs, %.1f KB",
+                     clip.duration_seconds, len(clip.data) / 1024)
+
+        if self._mqtt.is_connected:
+            self._mqtt.publish_video(clip.data)
+        else:
+            logger.warning("MQTT offline — video clip discarded (too large to queue)")
+
+        self._pending_video_alert_payload = None
 
     def _get_device_status(self) -> dict:
         """Build device status dict for heartbeats and alerts."""

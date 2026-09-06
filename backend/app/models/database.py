@@ -109,7 +109,8 @@ class Alert(Base):
     person_count = Column(Integer, default=0)
     bbox_json = Column(Text, default="[]")
     direction = Column(String(50), default="")
-    image_path = Column(String(500), default="")  # MinIO object key
+    image_path = Column(String(500), default="")  # S3 object key for snapshot
+    video_path = Column(String(500), default="")  # S3 object key for video clip
     acknowledged = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

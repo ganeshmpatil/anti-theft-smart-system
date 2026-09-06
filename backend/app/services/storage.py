@@ -123,6 +123,22 @@ class StorageService:
             logger.exception("Failed to generate presigned URL for %s", object_name)
             return ""
 
+    def download(self, object_name: str) -> bytes | None:
+        """Download an object and return its bytes."""
+        try:
+            if self._backend == "supabase":
+                resp = self._s3.get_object(Bucket=self._bucket, Key=object_name)
+                return resp["Body"].read()
+            else:
+                response = self._client.get_object(self._bucket, object_name)
+                data = response.read()
+                response.close()
+                response.release_conn()
+                return data
+        except Exception:
+            logger.exception("Failed to download: %s", object_name)
+            return None
+
     def delete_image(self, object_name: str) -> bool:
         """Delete an image from storage."""
         try:

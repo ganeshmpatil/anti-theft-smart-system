@@ -133,6 +133,7 @@ class AlertResponse(BaseModel):
     bbox_json: str
     direction: str
     image_path: str
+    video_path: str = ""
     acknowledged: bool
     created_at: datetime
 

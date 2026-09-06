@@ -112,6 +112,19 @@ class MQTTClient:
         except Exception:
             return False
 
+    def publish_video(self, video_data: bytes) -> bool:
+        """Publish an alert video clip (QoS 1 — reliable delivery)."""
+        try:
+            result = self._client.publish(
+                f"{self._topic_prefix}/video",
+                payload=video_data,
+                qos=1,
+            )
+            return result.rc == mqtt.MQTT_ERR_SUCCESS
+        except Exception:
+            logger.exception("Failed to publish video")
+            return False
+
     def publish_live_frame(self, frame_jpeg: bytes) -> bool:
         """Publish a live feed frame (QoS 0 — speed over reliability)."""
         try:

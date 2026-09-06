@@ -94,21 +94,48 @@ def get_alert_image(
     if not storage:
         raise HTTPException(status_code=500, detail="Storage service not available")
 
-    try:
-        response = storage._client.get_object(storage._bucket, alert.image_path)
-        return StreamingResponse(
-            io.BytesIO(response.read()),
-            media_type="image/jpeg",
-            headers={"Cache-Control": "no-cache"},
-        )
-    except Exception:
+    data = storage.download(alert.image_path)
+    if data is None:
         raise HTTPException(status_code=404, detail="Image not found in storage")
-    finally:
-        try:
-            response.close()
-            response.release_conn()
-        except Exception:
-            pass
+
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@router.get("/{alert_id}/video")
+def get_alert_video(
+    alert_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    allowed_ids = _user_device_ids(user, db)
+    if alert.device_id not in allowed_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not alert.video_path:
+        raise HTTPException(status_code=404, detail="No video available")
+
+    storage = _get_storage(request)
+    if not storage:
+        raise HTTPException(status_code=500, detail="Storage service not available")
+
+    data = storage.download(alert.video_path)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Video not found in storage")
+
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="video/mp4",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @router.delete("")
@@ -122,22 +149,27 @@ def clear_alerts(
     if not allowed_ids:
         return {"deleted": 0}
 
-    # Collect image paths before deleting DB records
+    # Collect media paths before deleting DB records
     alerts = db.query(Alert).filter(Alert.device_id.in_(allowed_ids)).all()
-    image_paths = [a.image_path for a in alerts if a.image_path]
+    media_paths = []
+    for a in alerts:
+        if a.image_path:
+            media_paths.append(a.image_path)
+        if a.video_path:
+            media_paths.append(a.video_path)
 
     count = db.query(Alert).filter(Alert.device_id.in_(allowed_ids)).delete(
         synchronize_session="fetch"
     )
     db.commit()
 
-    # Delete images from MinIO
+    # Delete media from storage
     storage = _get_storage(request)
-    if storage and image_paths:
-        for path in image_paths:
+    if storage and media_paths:
+        for path in media_paths:
             storage.delete_image(path)
 
-    return {"deleted": count, "images_deleted": len(image_paths)}
+    return {"deleted": count, "media_deleted": len(media_paths)}
 
 
 @router.patch("/{alert_id}/ack", response_model=AlertResponse)

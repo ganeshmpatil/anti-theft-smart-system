@@ -15,7 +15,7 @@ class ApiException implements Exception {
 typedef LogoutCallback = void Function();
 
 class ApiClient {
-  static String baseUrl = 'http://localhost:8000/api/v1';
+  static String baseUrl = 'https://farmguard-api.onrender.com/api/v1';
   static LogoutCallback? onUnauthorized;
 
   static Future<void> loadBaseUrl() async {

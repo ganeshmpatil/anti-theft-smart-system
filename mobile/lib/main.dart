@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'services/api_client.dart';
 import 'services/auth_service.dart';
+import 'services/api_client.dart';
 import 'services/notification_service.dart';
 import 'services/update_service.dart';
 import 'screens/login_screen.dart';
@@ -14,7 +14,6 @@ import 'screens/settings_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService.init();
-  await ApiClient.loadBaseUrl();
   runApp(const FarmGuardApp());
 }
 

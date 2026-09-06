@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../services/api_client.dart';
 import '../services/alarm_service.dart';
 import '../services/update_service.dart';
 
@@ -12,8 +11,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _urlCtrl = TextEditingController(text: ApiClient.baseUrl);
-  bool _saved = false;
   late bool _alarmEnabled;
   bool _checkingUpdate = false;
 
@@ -21,14 +18,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _alarmEnabled = AlarmService().alarmEnabled;
-  }
-
-  Future<void> _save() async {
-    await ApiClient.saveBaseUrl(_urlCtrl.text.trim());
-    setState(() => _saved = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _saved = false);
-    });
   }
 
   Future<void> _toggleAlarm(bool value) async {
@@ -54,35 +43,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   @override
-  void dispose() {
-    _urlCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Server URL', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _urlCtrl,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: 'http://10.0.2.2:8000/api/v1',
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _save,
-            child: Text(_saved ? 'Saved!' : 'Save'),
-          ),
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 16),
           SwitchListTile(
             title: const Text('Emergency Alarm'),
             subtitle: const Text(
@@ -112,10 +78,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: _checkingUpdate ? null : _checkForUpdate,
           ),
           const SizedBox(height: 24),
-          const Text(
-            'For Android emulator use http://10.0.2.2:8000/api/v1\n'
-            'For physical device use your PC\'s LAN IP.',
-          ),
         ],
       ),
     );

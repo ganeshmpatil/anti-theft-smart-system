@@ -15,22 +15,8 @@ class ApiException implements Exception {
 typedef LogoutCallback = void Function();
 
 class ApiClient {
-  static String baseUrl = 'https://farmguard-api.onrender.com/api/v1';
+  static const String baseUrl = 'https://farmguard-api.onrender.com/api/v1';
   static LogoutCallback? onUnauthorized;
-
-  static Future<void> loadBaseUrl() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('server_url');
-    if (saved != null && saved.isNotEmpty) {
-      baseUrl = saved;
-    }
-  }
-
-  static Future<void> saveBaseUrl(String url) async {
-    baseUrl = url;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('server_url', url);
-  }
 
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();

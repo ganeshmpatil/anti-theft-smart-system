@@ -40,6 +40,19 @@ async def lifespan(app: FastAPI):
     # In production, use Alembic migrations: cd backend && alembic upgrade head
     # create_all is safe as a fallback — it only creates tables that don't exist yet
     Base.metadata.create_all(bind=engine)
+
+    # Ensure video_path column exists (create_all won't add columns to existing tables)
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "alerts" in insp.get_table_names():
+        columns = [c["name"] for c in insp.get_columns("alerts")]
+        if "video_path" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE alerts ADD COLUMN video_path VARCHAR(500) DEFAULT '' NOT NULL"
+                ))
+            logger.info("Added video_path column to alerts table.")
+
     logger.info("Database tables ready.")
 
     # Initialize Firebase for push notifications

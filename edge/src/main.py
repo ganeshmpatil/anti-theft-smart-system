@@ -127,8 +127,13 @@ def main():
         providers.tamper.start()
         logger.info("Tamper monitor started")
 
+    # Read current version
+    version_file = Path("/opt/surveillance/VERSION")
+    current_version = version_file.read_text().strip() if version_file.exists() else "0.0.0"
+    logger.info("Firmware version: %s", current_version)
+
     # Initialize command handler
-    command_handler = CommandHandler()
+    command_handler = CommandHandler(current_version=current_version)
     mqtt_client.on_command(command_handler.handle)
 
     # Initialize exclusion zone filter

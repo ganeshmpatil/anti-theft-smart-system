@@ -3,13 +3,15 @@
 import logging
 import threading
 
+from .ota_updater import OTAUpdater
+
 logger = logging.getLogger(__name__)
 
 
 class CommandHandler:
-    """Processes arm/disarm/snapshot/reboot/live_feed commands."""
+    """Processes arm/disarm/snapshot/reboot/live_feed/ota_update commands."""
 
-    def __init__(self):
+    def __init__(self, current_version: str = "0.0.0"):
         self._armed = threading.Event()
         self._armed.set()  # armed by default
         self._snapshot_requested = threading.Event()
@@ -19,6 +21,7 @@ class CommandHandler:
         self._live_feed_fps = 3
         self._live_feed_camera = "cam_front"
         self._lock = threading.Lock()
+        self._ota = OTAUpdater(current_version=current_version)
 
     def handle(self, action: str, params: dict):
         """Process an incoming command.
@@ -56,6 +59,9 @@ class CommandHandler:
         elif action == "live_feed_stop":
             self._live_feed_active.clear()
             logger.info("Live feed stopped by command")
+
+        elif action == "ota_update":
+            self._ota.handle_update_command(params)
 
         elif action == "config_update":
             logger.info("Config update received")

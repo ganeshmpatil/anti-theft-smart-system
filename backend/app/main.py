@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
             app.state.mqtt_handler = mqtt
             commands.set_mqtt_handler(mqtt)
             live_feed.set_mqtt_handler(mqtt)
+            admin.set_admin_mqtt_handler(mqtt)
             logger.info("MQTT handler started.")
         except Exception:
             logger.warning("MQTT broker unavailable — real-time features disabled.")

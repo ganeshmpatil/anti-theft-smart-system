@@ -36,12 +36,17 @@ class MQTTClient:
         if username:
             self._client.username_pw_set(username, password)
 
-        if tls_enabled and ca_cert:
-            self._client.tls_set(
-                ca_certs=ca_cert,
-                certfile=client_cert or None,
-                keyfile=client_key or None,
-            )
+        if tls_enabled:
+            import ssl
+            if ca_cert:
+                self._client.tls_set(
+                    ca_certs=ca_cert,
+                    certfile=client_cert or None,
+                    keyfile=client_key or None,
+                )
+            else:
+                # No custom CA — use system trust store (works for EMQX Cloud / DigiCert)
+                self._client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
 
         # Last Will Testament: if we disconnect unexpectedly
         self._client.will_set(

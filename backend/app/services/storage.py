@@ -13,15 +13,30 @@ logger = logging.getLogger(__name__)
 
 
 class StorageService:
-    """Manages alert snapshot storage in MinIO (S3-compatible)."""
+    """Manages alert snapshot storage in S3-compatible backends (MinIO, Supabase, etc.)."""
 
     def __init__(self):
-        self._client = Minio(
-            settings.minio_endpoint,
-            access_key=settings.minio_access_key,
-            secret_key=settings.minio_secret_key,
-            secure=settings.minio_secure,
-        )
+        endpoint = settings.minio_endpoint
+
+        # Supabase S3 endpoint includes a path — extract host and set region
+        # e.g. "hixzeyeijkhbhphmjynq.supabase.co/storage/v1/s3"
+        if "/storage/v1/s3" in endpoint:
+            host = endpoint.split("/storage/v1/s3")[0]
+            self._client = Minio(
+                host,
+                access_key=settings.minio_access_key,
+                secret_key=settings.minio_secret_key,
+                secure=True,
+                region="ap-south-1",
+            )
+            # Supabase S3 uses path-style but Minio client handles it
+        else:
+            self._client = Minio(
+                endpoint,
+                access_key=settings.minio_access_key,
+                secret_key=settings.minio_secret_key,
+                secure=settings.minio_secure,
+            )
         self._bucket = settings.minio_bucket
 
     def ensure_bucket(self):
@@ -29,9 +44,15 @@ class StorageService:
         try:
             if not self._client.bucket_exists(self._bucket):
                 self._client.make_bucket(self._bucket)
-                logger.info("Created MinIO bucket: %s", self._bucket)
-        except S3Error:
-            logger.exception("Failed to create MinIO bucket")
+                logger.info("Created bucket: %s", self._bucket)
+            else:
+                logger.info("Bucket exists: %s", self._bucket)
+        except S3Error as e:
+            # Supabase/some providers may not support bucket_exists — treat as OK
+            if "BucketAlreadyOwnedByYou" in str(e) or "BucketAlreadyExists" in str(e):
+                logger.info("Bucket already exists: %s", self._bucket)
+            else:
+                logger.warning("Bucket check failed (non-fatal): %s", e)
 
     def upload_image(self, object_name: str, image_data: bytes,
                      content_type: str = "image/jpeg") -> bool:

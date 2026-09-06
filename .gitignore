@@ -67,3 +67,7 @@ docker-compose.override.yml
 backend/certs/*.key
 backend/certs/*.crt
 .wrangler/
+
+# Build artifacts
+farmguard.apk
+farmguard_download_qr.png
